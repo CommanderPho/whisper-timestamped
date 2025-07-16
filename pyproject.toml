@@ -1,12 +1,27 @@
 [project]
-name = ""
+name = "whisper-timestamped"
 version = "0.0.1"
+description = "Multi-lingual Automatic Speech Recognition (ASR) based on Whisper models, with accurate word timestamps, access to language detection confidence, several options for Voice Activity Detection (VAD), and more."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Jeronymous"},
+]
+urls = {Homepage = "https://github.com/CommanderPho/whisper-timestamped"}
 dependencies = [
     "cython",
     "dtw-python",
+    "matplotlib>=3.10.3",
+    "onnxruntime>=1.22.1",
     "openai-whisper",
+    "torchaudio>=2.7.1",
+    "transformers>=4.53.2",
 ]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+openai-whisper = { git = "https://github.com/openai/whisper.git" }
  
