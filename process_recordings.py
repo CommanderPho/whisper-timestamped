@@ -34,7 +34,7 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
     
     print(f"Found {len(video_files)} video files to process")
     
-    output_files = {'json': {}, 'srt': {}}
+    output_files = {'json': {}, 'srt': {}, 'csv': {}}
     # Process each video file
     for video_file in video_files:
         print(f"\nProcessing: {video_file.name}")
@@ -54,6 +54,7 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
             base_name = video_file.stem
             json_file = output_dir / f"{base_name}.json"
             srt_file = output_dir / f"{base_name}.srt"
+            csv_file = output_dir / f"{base_name}.csv"
             
             # Save JSON output
             with open(json_file, 'w', encoding='utf-8') as f:
@@ -66,6 +67,12 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
                 whisper.write_srt(result["segments"], f)
             output_files['srt'][base_name] = srt_file
             print(f"  ✓ Saved: {srt_file.name}")
+            
+            # Save CSV output
+            with open(csv_file, 'w', encoding='utf-8') as f:
+                whisper.write_csv(result["segments"], f, header=True)
+            output_files['csv'][base_name] = csv_file
+            print(f"  ✓ Saved: {csv_file.name}")
             
         except Exception as e:
             print(f"  ✗ Error processing {video_file.name}: {str(e)}")
