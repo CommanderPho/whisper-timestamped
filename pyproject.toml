@@ -1,0 +1,12 @@
+[project]
+name = ""
+version = "0.0.1"
+dependencies = [
+    "cython",
+    "dtw-python",
+    "openai-whisper",
+]
+
+[tool.uv]
+package = false
+ 
