@@ -794,3 +794,27 @@ and this paper for Dynamic-Time-Warping:
   doi={10.18637/jss.v031.i07}
 }
 ```
+
+
+# Pho Usage
+```bash
+uv sync --all-extras
+```
+
+```bash
+whisper_timestamped "M:\ScreenRecordings\EyeTrackerVR_Recordings\Debut_2025-07-16T151243.mp4" --model medium --language en --output_dir ./transcriptions
+
+
+whisper_timestamped "M:\ScreenRecordings\EyeTrackerVR_Recordings\Debut_2025-07-16T151243.mp4" --model medium --language en --output_format json --output_format srt --output_dir ./transcriptions
+
+
+
+
+```
+
+```python
+
+recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve()
+
+
+```
