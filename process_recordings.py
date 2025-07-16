@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 
 from whisper.utils import str2bool, optional_float, optional_int
+import whisper_timestamped as whisper
+from whisper_timestamped.transcribe import write_csv, flatten, remove_keys
 
 try:
     # Old whisper version # Before https://github.com/openai/whisper/commit/da600abd2b296a5450770b872c3765d0a5a5c769
@@ -35,8 +37,6 @@ except ImportError:
     write_tsv = get_do_write("tsv")
     
 
-import whisper_timestamped as whisper
-from whisper_timestamped.transcribe import write_csv, flatten, remove_keys
 
 
 
@@ -50,79 +50,109 @@ def write_results(result, output_dir: Path, base_name: str, output_formats = ['j
     output_file_path: Path = output_dir.joinpath(base_name) ## with no suffix
     output_files = {k:dict() for k in output_formats} #{'json': {}, 'srt': {}, 'csv': {}}
 
+    ## Save JSON:
     if "json" in output_formats:
-        # save JSON
-        a_file = output_file_path.with_suffix(".words.json")
-        with open(a_file, "w", encoding="utf-8") as js:
-            json.dump(result, js, indent=2, ensure_ascii=False)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        # output_file_path[a_file.suffix.removeprefix('.')][base_name] = a_file # [base_name] = json_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            # save JSON
+            a_file = output_file_path.with_suffix(".words.json")
+            with open(a_file, "w", encoding="utf-8") as js:
+                json.dump(result, js, indent=2, ensure_ascii=False)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving JSON: {str(e)}")
 
     # save CSV
     if "csv" in output_formats:
-        a_file = output_file_path.with_suffix(".csv")
-        with open(a_file, "w", encoding="utf-8") as csv:
-            write_csv(result["segments"], file=csv)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            a_file = output_file_path.with_suffix(".csv")
+            with open(a_file, "w", encoding="utf-8") as csv:
+                write_csv(result["segments"], file=csv, header=True)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving CSV: {str(e)}")
 
-        a_file = output_file_path.with_suffix(".words.csv")
-        with open(a_file, "w", encoding="utf-8") as csv:
-            write_csv(flatten(result["segments"], "words"), file=csv)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            a_file = output_file_path.with_suffix(".words.csv")
+            with open(a_file, "w", encoding="utf-8") as csv:
+                write_csv(flatten(result["segments"], "words"), file=csv, header=True)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving words CSV: {str(e)}")
 
     # save TXT
     if "txt" in output_formats:
-        a_file = output_file_path.with_suffix(".txt")
-        with open(a_file, "w", encoding="utf-8") as txt:
-            write_txt(result["segments"], file=txt)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            a_file = output_file_path.with_suffix(".txt")
+            with open(a_file, "w", encoding="utf-8") as txt:
+                write_txt(result["segments"], file=txt)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving TXT: {str(e)}")
 
     # save VTT
     if "vtt" in output_formats:
-        a_file = output_file_path.with_suffix(".vtt")
-        with open(a_file, "w", encoding="utf-8") as vtt:
-            write_vtt(remove_keys(result["segments"], "words"), file=vtt)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            a_file = output_file_path.with_suffix(".vtt")
+            with open(a_file, "w", encoding="utf-8") as vtt:
+                write_vtt(remove_keys(result["segments"], "words"), file=vtt)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving VTT: {str(e)}")
 
-        a_file = output_file_path.with_suffix(".words.vtt")
-        with open(a_file, "w", encoding="utf-8") as vtt:
-            write_vtt(flatten(result["segments"], "words"), file=vtt)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            a_file = output_file_path.with_suffix(".words.vtt")
+            with open(a_file, "w", encoding="utf-8") as vtt:
+                write_vtt(flatten(result["segments"], "words"), file=vtt)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving words VTT: {str(e)}")
 
     # save SRT
     if "srt" in output_formats:
-        a_file = output_file_path.with_suffix(".srt")
-        with open(a_file, encoding="utf-8") as srt:
-            write_srt(remove_keys(result["segments"], "words"), file=srt)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            a_file = output_file_path.with_suffix(".srt")
+            with open(a_file, "w", encoding="utf-8") as srt:
+                write_srt(remove_keys(result["segments"], "words"), file=srt)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving SRT: {str(e)}")
 
-        a_file = output_file_path.with_suffix(".words.srt")
-        with open(a_file, "w", encoding="utf-8") as srt:
-            write_srt(flatten(result["segments"], "words"), file=srt)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            a_file = output_file_path.with_suffix(".words.srt")
+            with open(a_file, "w", encoding="utf-8") as srt:
+                write_srt(flatten(result["segments"], "words"), file=srt)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving words SRT: {str(e)}")
 
     # save TSV
     if "tsv" in output_formats:
-        a_file = output_file_path.with_suffix(".tsv")
-        with open(a_file, "w", encoding="utf-8") as csv:
-            write_tsv(result["segments"], file=csv)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
+        try:
+            a_file = output_file_path.with_suffix(".tsv")
+            with open(a_file, "w", encoding="utf-8") as csv:
+                write_tsv(result["segments"], file=csv)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving TSV: {str(e)}")
 
-        a_file = output_file_path.with_suffix(".words.tsv")
-        with open(a_file, "w", encoding="utf-8") as csv:
-            write_tsv(flatten(result["segments"], "words"), file=csv)
-        output_file_path['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
-        print(f"  ✓ Saved: {a_file.name}")
-        
+        try:
+            a_file = output_file_path.with_suffix(".words.tsv")
+            with open(a_file, "w", encoding="utf-8") as csv:
+                write_tsv(flatten(result["segments"], "words"), file=csv)
+            output_files['.'.join([k.removeprefix('.') for k in a_file.suffixes])][base_name] = a_file
+            print(f"  ✓ Saved: {a_file.name}")
+        except Exception as e:
+            print(f"  ✗ Error saving words TSV: {str(e)}")
+
     return output_files
 
 
@@ -176,37 +206,12 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
             
             # Generate output filenames
             base_name = video_file.stem
-            curr_output_files = write_results(result, output_dir=output_dir, base_name=base_name)
+            curr_output_files_dict = write_results(result, output_dir=output_dir, base_name=base_name)
             ## add outputted files to the output_files dict
-            for k, curr_out_files_dict in curr_output_files.items():
+            for k, curr_out_files_dict in curr_output_files_dict.items():
                 if k not in output_files:
                     output_files[k] = dict() ## initialize a new dict
                 output_files[k].update(**curr_out_files_dict)
-
-
-            base_name = video_file.stem
-            json_file = output_dir / f"{base_name}.json"
-            srt_file = output_dir / f"{base_name}.srt"
-            csv_file = output_dir / f"{base_name}.csv"
-            
-            # Save JSON output
-            with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(result, f, indent=2, ensure_ascii=False)
-            output_files['json'][base_name] = json_file
-            print(f"  ✓ Saved: {json_file.name}")
-
-            # Save SRT output
-            with open(srt_file, 'w', encoding='utf-8') as f:
-                whisper.write_srt(result["segments"], f)
-            output_files['srt'][base_name] = srt_file
-            print(f"  ✓ Saved: {srt_file.name}")
-            
-            # Save CSV output
-            with open(csv_file, 'w', encoding='utf-8') as f:
-                result.
-                whisper.write_csv(result["segments"], f, header=True)
-            output_files['csv'][base_name] = csv_file
-            print(f"  ✓ Saved: {csv_file.name}")
             
         except Exception as e:
             print(f"  ✗ Error processing {video_file.name}: {str(e)}")
