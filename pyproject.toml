@@ -3,7 +3,7 @@ name = "whisper-timestamped"
 version = "0.0.1"
 description = "Multi-lingual Automatic Speech Recognition (ASR) based on Whisper models, with accurate word timestamps, access to language detection confidence, several options for Voice Activity Detection (VAD), and more."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Jeronymous"},
@@ -11,17 +11,49 @@ authors = [
 urls = {Homepage = "https://github.com/CommanderPho/whisper-timestamped"}
 dependencies = [
     "cython",
-    "dtw-python",
-    "matplotlib>=3.10.3",
-    "onnxruntime>=1.22.1",
+    "dtw-python", 
     "openai-whisper",
+]
+
+[project.optional-dependencies]
+dev = [
+    "matplotlib>=3.10.3",
+    "transformers>=4.53.2",
+]
+vad_silero = [
+    "onnxruntime>=1.22.1",
+    "torchaudio>=2.7.1",
+]
+vad_auditok = [
+    "auditok",
+]
+test = [
+    "jsonschema",
+]
+# Updated extras that match your current dependencies
+full = [
+    "matplotlib>=3.10.3",
+    "onnxruntime>=1.22.1", 
     "torchaudio>=2.7.1",
     "transformers>=4.53.2",
 ]
 
+[project.scripts]
+whisper_timestamped = "whisper_timestamped.transcribe:cli"
+whisper_timestamped_make_subtitles = "whisper_timestamped.make_subtitles:cli"
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"*" = ["*"]
+
 [tool.uv]
-package = false
+package = true
 
 [tool.uv.sources]
 openai-whisper = { git = "https://github.com/openai/whisper.git" }
- 
