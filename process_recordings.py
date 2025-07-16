@@ -48,6 +48,7 @@ def write_results(result, output_dir: Path, base_name: str, output_formats = ['j
     """
     # Generate output filenames
     output_file_path: Path = output_dir.joinpath(base_name) ## with no suffix
+    print(F'building output files for output_file_path: "{output_file_path.as_posix()}"')
     output_files = {k:dict() for k in output_formats} #{'json': {}, 'srt': {}, 'csv': {}}
 
     ## Save JSON:
