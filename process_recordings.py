@@ -3,6 +3,7 @@ import os
 # import argparse
 import json
 from pathlib import Path
+from typing import List
 
 from whisper.utils import str2bool, optional_float, optional_int
 import whisper_timestamped as whisper
@@ -38,7 +39,21 @@ except ImportError:
     
 
 
+def find_extant_output_files(output_dir: Path, base_name: str, output_formats = ['json', 'csv', 'srt', 'vtt', 'txt']) -> List[Path]:
+    """ found any of the output files that would be created upon transcode completion in the output_dir 
 
+    found_output_files: List[Path] = find_extant_output_files(output_dir=output_dir, base_name=base_name, output_formats=output_formats)
+
+    """
+    # Generate output filenames
+    output_file_path: Path = output_dir.joinpath(base_name) ## with no suffix
+    found_output_files: List[Path] = [] #{'json': {}, 'srt': {}, 'csv': {}}
+    for k in output_formats:
+        a_file: Path = output_file_path.with_suffix(f".{k}")
+        if (a_file.exists() and a_file.is_file()):
+            found_output_files.append(a_file)
+
+    return found_output_files
 
 def write_results(result, output_dir: Path, base_name: str, output_formats = ['json', 'csv', 'srt', 'vtt', 'txt']):
     """ Writes the results object out to disk
@@ -187,6 +202,14 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
         video_files.extend(recordings_dir.glob(f"*{ext}"))
         video_files.extend(recordings_dir.glob(f"*{ext.upper()}"))
     
+
+    progress_files = []
+    output_dir
+
+
+
+
+    
     if not video_files:
         print(f"No video files found in {recordings_dir}")
         return
@@ -197,31 +220,39 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
     # Process each video file
     for video_file in video_files:
         print(f"\nProcessing: {video_file.name}")
-        
-        try:
-            # Load audio from video file
-            audio = whisper.load_audio(str(video_file))
-            
-            # Transcribe with timestamps
-            result = whisper.transcribe(
-                model, 
-                audio, 
-                language="en"
-            )
-            
-            # Generate output filenames
-            base_name = video_file.stem
-            curr_output_files_dict = write_results(result, output_dir=output_dir, base_name=base_name)
-            ## add outputted files to the output_files dict
-            for k, curr_out_files_dict in curr_output_files_dict.items():
-                if k not in output_files:
-                    output_files[k] = dict() ## initialize a new dict
-                output_files[k].update(**curr_out_files_dict)
-            
-        except Exception as e:
-            print(f"  ✗ Error processing {video_file.name}: {str(e)}")
+        # Generate output filenames
+        base_name = video_file.stem
+
+        ## check if its outputs exist already
+        found_output_files: List[Path] = find_extant_output_files(output_dir=output_dir, base_name=base_name)
+        if found_output_files:
+            print(f"  ✗ Skipping {video_file.name} as its outputs already exist: {found_output_files}")
             continue
-    
+        else:
+            try:
+                # Load audio from video file
+                audio = whisper.load_audio(str(video_file))
+                
+                # Transcribe with timestamps
+                result = whisper.transcribe(
+                    model, 
+                    audio, 
+                    language="en"
+                )
+                
+                # Generate output filenames
+                base_name = video_file.stem
+                curr_output_files_dict = write_results(result, output_dir=output_dir, base_name=base_name)
+                ## add outputted files to the output_files dict
+                for k, curr_out_files_dict in curr_output_files_dict.items():
+                    if k not in output_files:
+                        output_files[k] = dict() ## initialize a new dict
+                    output_files[k].update(**curr_out_files_dict)
+                
+            except Exception as e:
+                print(f"  ✗ Error processing {video_file.name}: {str(e)}")
+                continue
+            
     print(f"\nProcessing complete! Output files saved to: {output_dir.resolve()}")
     return output_files
 
