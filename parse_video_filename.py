@@ -19,7 +19,7 @@ def parse_video_filename(filename: str) -> datetime:
     filename = Path(filename).stem
     
     # Pattern: prefix_YYYY-MM-DDTHHMMSS
-    pattern = r'.*_(\d{4}-\d{2}-\d{2}T\d{6})'
+    pattern = r'.*(\d{4}-\d{2}-\d{2}T\d{6})'
     match = re.search(pattern, filename)
     
     if not match:

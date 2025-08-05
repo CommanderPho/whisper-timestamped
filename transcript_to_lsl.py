@@ -9,10 +9,146 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 from parse_video_filename import parse_video_filename
-from typing import Optional, Union
+from typing import List, Optional, Union
 
-def add_absolute_timestamps(csv_path: Union[str, Path], 
-                          video_filename: Optional[str] = None) -> pd.DataFrame:
+
+class VideoTranscriptToLabStreamingLayer:
+    @classmethod
+    def add_absolute_timestamps(cls, segments: List, file_basename: Union[datetime, Path, str]) -> List:
+        """
+        Parse transcript CSV and add absolute datetime timestamps.
+
+        Args:
+            csv_path: Path to the whisper transcript CSV file
+            video_filename: Video filename to parse date from. If None, inferred from csv_path.
+
+        Returns:
+            DataFrame with absolute datetime columns added
+        """
+        # We need the recording start absolute datetime, so get this as provided or from the provided basename
+        base_datetime = None
+        if isinstance(file_basename, datetime):
+            ## already have the final form, the datetime
+            base_datetime = file_basename
+        else:
+            if isinstance(file_basename, str):
+                file_basename = Path(file_basename)
+            file_basename = file_basename.stem  # removes .csv extension
+
+            # Parse the base datetime from video filename
+            try:
+                base_datetime = parse_video_filename(file_basename)
+            except ValueError as e:
+                raise ValueError(f"Could not parse datetime from filename '{file_basename}': {e}")
+
+        assert base_datetime is not None
+        # Convert relative timestamps to absolute datetimes
+        for a_segment in segments:
+            a_segment['absolute_start'] = base_datetime + timedelta(seconds=a_segment['start'])
+            a_segment['absolute_end'] = base_datetime + timedelta(seconds=a_segment['end']) 
+
+        return segments
+
+    @classmethod
+    def create_lsl_stream_data(cls, df: pd.DataFrame, stream_name: str = "whisper_transcript", source_id: str = "whisper", stream_save_filename: Optional[Path]=None) -> dict:
+        """
+        Create LSL-compatible stream data structure from transcript DataFrame.
+
+        Args:
+            df: DataFrame with transcript data and absolute timestamps
+            stream_name: Name for the LSL stream
+            source_id: Source identifier for the stream
+
+        Returns:
+            Dictionary containing LSL stream metadata and data
+            
+            
+        Usage:
+            lsl_stream_output_path = output_dir / f"{csv_path.stem}.lsl.json"
+            lsl_stream_output = VideoTranscriptToLabStreamingLayer.create_lsl_stream_data(file_contents['segments'], stream_save_filename=lsl_stream_output_path)
+        """
+        start_times = []
+        end_times = []
+        # Create LSL stream info
+        stream_info = {
+            "name": stream_name,
+            "type": "Markers",
+            "channel_count": 1,
+            "nominal_srate": 0,  # Irregular sampling
+            "channel_format": "string",
+            "source_id": source_id,
+            "created_at": datetime.now().isoformat(),
+            "session_id": f"{source_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        }
+
+        # Create data samples with timestamps
+        samples = []
+        if isinstance(df, pd.DataFrame):
+            for _, row in df.iterrows():
+                # Each sample contains the text and timing info
+                sample = {
+                    "timestamp": row['absolute_start'].timestamp(),
+                    "data": {
+                        "text": row['text'],
+                        "duration": row['end'] - row['start'],
+                        "start_offset": row['start'],
+                        "end_offset": row['end'],
+                        "confidence": getattr(row, 'confidence', None)  # if available
+                    }
+                }
+                samples.append(sample)
+                start_times.append(df['absolute_start'])
+                end_times.append(df['absolute_end'])
+
+        elif isinstance(df, list):
+            ## a list of sample dicts
+            for row in df:
+                # Each sample contains the text and timing info
+                sample = {
+                    "timestamp": row['absolute_start'].timestamp(),
+                    "data": {
+                        "text": row['text'],
+                        "duration": row['end'] - row['start'],
+                        "start_offset": row['start'],
+                        "end_offset": row['end'],
+                        "confidence": getattr(row, 'confidence', None)  # if available
+                    }
+                }
+                samples.append(sample)
+                start_times.append(row['absolute_start'])
+                end_times.append(row['absolute_end'])
+        else:
+            raise TypeError(f'unexpected type: {type(df)}')
+
+        lsl_data = {
+            "stream_info": stream_info,
+            "samples": samples,
+            "total_samples": len(samples),
+            "start_time": np.min(start_times).isoformat(),
+            "end_time": np.max(start_times).isoformat()
+            # "start_time": df['absolute_start'].min().isoformat(),
+            # "end_time": df['absolute_end'].max().isoformat()
+        }
+        
+        if stream_save_filename is not None:
+            # Create LSL stream
+            cls.save_lsl_stream(lsl_data, output_path=stream_save_filename)
+            
+        return lsl_data
+    
+
+    @classmethod
+    def save_lsl_stream(cls, stream_data: dict, output_path: Union[str, Path]) -> None:
+        """Save LSL stream data to JSON file."""
+        output_path = Path(output_path)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(stream_data, f, indent=2, ensure_ascii=False)
+                
+
+
+
+
+def add_absolute_timestamps(csv_path: Union[str, Path], video_filename: Optional[str] = None) -> pd.DataFrame:
     """
     Parse transcript CSV and add absolute datetime timestamps.
     
@@ -33,9 +169,14 @@ def add_absolute_timestamps(csv_path: Union[str, Path],
     # Get video filename from CSV path if not provided
     if video_filename is None:
         video_filename = csv_path.stem  # removes .csv extension
-        if video_filename.endswith('.mp4'):
-            video_filename = video_filename[:-4]  # remove .mp4 if present
+        
+        # if video_filename.endswith('.mp4'):
+        #     video_filename = video_filename[:-4]  # remove .mp4 if present
     
+    if isinstance(video_filename, str):
+        video_filename = Path(video_filename)
+    video_filename = video_filename.stem  # removes .csv extension
+
     # Parse the base datetime from video filename
     try:
         base_datetime = parse_video_filename(video_filename)
@@ -52,9 +193,7 @@ def add_absolute_timestamps(csv_path: Union[str, Path],
     
     return df
 
-def create_lsl_stream_data(df: pd.DataFrame, 
-                          stream_name: str = "whisper_transcript",
-                          source_id: str = "whisper") -> dict:
+def create_lsl_stream_data(df: pd.DataFrame, stream_name: str = "whisper_transcript", source_id: str = "whisper") -> dict:
     """
     Create LSL-compatible stream data structure from transcript DataFrame.
     
@@ -109,9 +248,7 @@ def save_lsl_stream(stream_data: dict, output_path: Union[str, Path]) -> None:
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(stream_data, f, indent=2, ensure_ascii=False)
 
-def process_transcript_to_lsl(csv_path: Union[str, Path], 
-                             output_dir: Optional[Union[str, Path]] = None,
-                             video_filename: Optional[str] = None) -> tuple[pd.DataFrame, dict]:
+def process_transcript_to_lsl(csv_path: Union[str, Path], output_dir: Optional[Union[str, Path]] = None, video_filename: Optional[str] = None) -> tuple[pd.DataFrame, dict]:
     """
     Complete pipeline: CSV transcript -> absolute timestamps -> LSL stream data.
     
@@ -147,6 +284,8 @@ def process_transcript_to_lsl(csv_path: Union[str, Path],
     print(f"LSL stream data saved to: {output_path}")
     
     return df, lsl_data
+
+
 
 # Example usage and CLI interface
 if __name__ == "__main__":

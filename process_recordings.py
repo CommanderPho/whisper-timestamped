@@ -256,6 +256,7 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
     print(f"\nProcessing complete! Output files saved to: {output_dir.resolve()}")
     return output_files
 
+
 if __name__ == "__main__":
     # Format(s) of the output file(s). Possible formats are: txt, vtt, srt, tsv, csv, json. Several formats can be specified by using commas (ex: "json,vtt,srt"). By default ("all"), all available formats  
     recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve()
