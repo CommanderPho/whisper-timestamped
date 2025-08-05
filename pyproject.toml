@@ -10,12 +10,18 @@ authors = [
 ]
 urls = {Homepage = "https://github.com/CommanderPho/whisper-timestamped"}
 dependencies = [
+    "attrs>=25.3.0",
     "cython",
     "dtw-python",
     "ipykernel>=6.30.0",
+    "mne>=1.10.0",
+    "mne-lsl>=1.10.1",
     "numpy>=2.2.6",
     "openai-whisper",
     "pandas>=2.3.1",
+    "pyinstaller>=6.15.0",
+    "pylsl>=1.17.6",
+    "pyxdf>=1.17.0",
     "scipy>=1.15.3",
 ]
 

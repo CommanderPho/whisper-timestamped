@@ -5,6 +5,7 @@ with absolute timestamps and multi-modal analysis support.
 
 import pandas as pd
 import numpy as np
+import mne
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
@@ -81,7 +82,11 @@ class VideoTranscriptToLabStreamingLayer:
             "session_id": f"{source_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         }
 
-        # Create data samples with timestamps
+
+        ## BEGIN BODY
+        # Extract messages and timestamps
+        messages = []
+        timestamps = []
         samples = []
         if isinstance(df, pd.DataFrame):
             for _, row in df.iterrows():
@@ -99,6 +104,11 @@ class VideoTranscriptToLabStreamingLayer:
                 samples.append(sample)
                 start_times.append(df['absolute_start'])
                 end_times.append(df['absolute_end'])
+                # MNE Version:
+                message = row['text'] if row['text'] else ''
+                timestamp = row['absolute_start'].timestamp() # row['start']
+                messages.append(message)
+                timestamps.append(timestamp)
 
         elif isinstance(df, list):
             ## a list of sample dicts
@@ -117,6 +127,14 @@ class VideoTranscriptToLabStreamingLayer:
                 samples.append(sample)
                 start_times.append(row['absolute_start'])
                 end_times.append(row['absolute_end'])
+                # MNE Version:
+                message = row['text'] if row['text'] else ''
+                timestamp = row['absolute_start'].timestamp() # row['start']
+                messages.append(message)
+                timestamps.append(timestamp)
+
+
+
         else:
             raise TypeError(f'unexpected type: {type(df)}')
 
@@ -129,12 +147,78 @@ class VideoTranscriptToLabStreamingLayer:
             # "start_time": df['absolute_start'].min().isoformat(),
             # "end_time": df['absolute_end'].max().isoformat()
         }
-        
+
+        # ==================================================================================================================================================================================================================================================================================== #
+        # MNE VERSION                                                                                                                                                                                                                                                                          #
+        # ==================================================================================================================================================================================================================================================================================== #
+        ## INPUTS: messages, timestamps, messages
+        # Convert timestamps to relative times (from first sample)
+        if timestamps:
+            first_timestamp = timestamps[0]
+            relative_timestamps = [ts - first_timestamp for ts in timestamps]
+        else:
+            relative_timestamps = []
+        # Create annotations (MNE's way of handling markers/events)
+        # Set orig_time=None to avoid timing conflicts
+        annotations = mne.Annotations(
+            onset=relative_timestamps,
+            duration=[0.0] * len(relative_timestamps),  # Instantaneous events
+            description=messages,
+            orig_time=None  # This fixes the timing conflict
+        )
+
+        # Create a minimal info structure for the markers
+        info = mne.create_info(
+            ch_names=[f'{stream_name}_Markers'],
+            sfreq=1000,  # Dummy sampling rate for the minimal channel
+            ch_types=['misc']
+        )
+
+        # Create raw object with minimal dummy data
+        # We need at least some data points to create a valid Raw object
+        if len(timestamps) > 0:
+            # Create dummy data spanning the recording duration
+            duration = relative_timestamps[-1] if relative_timestamps else 1.0
+            n_samples = int(duration * 1000) + 1000  # Add buffer
+            dummy_data = np.zeros((1, n_samples))
+        else:
+            dummy_data = np.zeros((1, 1000))  # Minimum 1 second of data
+
+        raw = mne.io.RawArray(dummy_data, info)
+
+        # Set measurement date to match the first timestamp
+        if timestamps:
+            raw.set_meas_date(timestamps[0])
+
+        raw.set_annotations(annotations)
+
+        # Add metadata to the raw object
+        raw.info['description'] = 'VideoTranscription LSL Stream Recording'
+        raw.info['experimenter'] = 'PhoVideoTranscriptToLabStreamingLayer'
+
+
         if stream_save_filename is not None:
+            xdf_filename = stream_save_filename
+            if isinstance(xdf_filename, Path):
+                xdf_filename = xdf_filename.as_posix()
+
+            # Determine output filename and format
+            if xdf_filename.endswith('.xdf'):
+                # Save as FIF (MNE's native format)
+                fif_filename = xdf_filename.replace('.xdf', '.fif')
+                raw.save(fif_filename, overwrite=True)
+                actual_filename = fif_filename
+                file_type = "FIF"
+            else:
+                # Use the original filename
+                raw.save(xdf_filename, overwrite=True)
+                actual_filename = xdf_filename
+                file_type = "FIF"
+
             # Create LSL stream
-            cls.save_lsl_stream(lsl_data, output_path=stream_save_filename)
+            # cls.save_lsl_stream(lsl_data, output_path=stream_save_filename)
             
-        return lsl_data
+        return lsl_data, raw
     
 
     @classmethod
