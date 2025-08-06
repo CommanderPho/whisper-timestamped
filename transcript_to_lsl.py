@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 from parse_video_filename import parse_video_filename
-from typing import List, Optional, Union
-
+from typing import List, Dict, Tuple, Optional, Union
+from process_recordings import find_extant_output_files, write_results, process_recordings
 
 class VideoTranscriptToLabStreamingLayer:
     @classmethod
@@ -229,7 +229,88 @@ class VideoTranscriptToLabStreamingLayer:
             json.dump(stream_data, f, indent=2, ensure_ascii=False)
                 
 
+    @classmethod
+    def MAIN_process_all_transcripts(cls, recordings_dir: Path, output_extensions = ['.json']):
+        """ Main function
 
+        lsl_stream_output_path, found_valid_output_files, read_valid_output_files_dict = VideoTranscriptToLabStreamingLayer.MAIN_process_all_transcripts(recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve())
+
+        """
+        # from whisper.utils import read_csv
+
+        # recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve()
+        
+        # Define the recordings directory
+        if isinstance(recordings_dir, str):
+            recordings_dir = Path(recordings_dir).resolve()
+        print(f'processing_recordings for recordings_dir: "{recordings_dir.as_posix()}"...')
+        # Create output directory
+        output_dir: Path = recordings_dir.joinpath('transcriptions').resolve()
+        lsl_converted_streams_output_dir: Path = output_dir.joinpath('LSL_Converted')
+        lsl_converted_streams_output_dir.mkdir(exist_ok=True)
+
+        # output_dir = Path("./transcriptions")
+
+        # output_extensions = ['.txt', '.vtt', '.srt', '.tsv', '.csv', '.json']
+        
+        # output_extensions = ['.csv']
+
+        found_output_files: List[Path] = []
+        for ext in output_extensions:
+            found_output_files.extend(output_dir.glob(f"*{ext}"))
+
+
+        # found_output_files: List[Path] = find_extant_output_files(output_dir=output_dir, base_name=base_name, output_formats=output_formats)
+        found_output_files
+
+        found_valid_output_files = []
+        read_valid_output_files_dict = {}
+        output_lsl_fif_files = []
+
+        for a_file in found_output_files:
+            if a_file.exists() and a_file.is_file():
+                # file_contents = json.load(a_file)
+                with open(a_file, "r", encoding="utf-8") as js:
+                    file_contents = json.load(js) # (result, js, indent=2, ensure_ascii=False)
+                if file_contents:
+                    is_ready_for_LSL_stream_export: bool = False
+                    if len(file_contents['segments']) > 0:
+                        try:
+                            file_contents['segments'] = VideoTranscriptToLabStreamingLayer.add_absolute_timestamps(segments=file_contents['segments'], file_basename=a_file.stem)
+                            print(f"\nSuccess! '{a_file.as_posix()}'\n\tProcessed {len(file_contents['segments'])} transcript segments")
+                            is_ready_for_LSL_stream_export = True
+                        except Exception as e:
+                            print(f"Failed to parse to LabStreamingLayer for file: '{a_file.as_posix()}' Error: {e}")
+                            is_ready_for_LSL_stream_export = False
+                            pass
+
+                        if is_ready_for_LSL_stream_export:            
+                            try:
+                                # lsl_stream_output_path = lsl_converted_streams_output_dir / f"{a_file.stem}.lsl.json"
+                                lsl_stream_output_path = lsl_converted_streams_output_dir / f"{a_file.stem}.lsl.fif"
+                                lsl_stream_output, raw_lsl_stream_output = VideoTranscriptToLabStreamingLayer.create_lsl_stream_data(file_contents['segments'], stream_save_filename=lsl_stream_output_path)                
+                                print(f"\tSuccess exporting to LSL Stream! '{lsl_stream_output_path.as_posix()}'")
+                                output_lsl_fif_files.append(lsl_stream_output_path)
+                            except Exception as e:
+                                print(f"\tFailed to export final LabStreamingLayer stream to '{lsl_stream_output_path.as_posix()}' for source file: '{a_file.as_posix()}' Error: {e}")
+                                raise
+
+                    # print(f'file_contents: {file_contents}')    
+
+                # _a_read_text: str = a_file.read_text()
+                # if _a_read_text:
+
+                #     found_valid_output_files.append(a_file)
+                #     read_valid_output_files_dict[a_file.name] = _a_read_text
+                #     ## actually include the file
+                #     try:
+                #         df, lsl_data = process_transcript_to_lsl(csv_path=a_file, output_dir=output_dir, video_filename=a_file.name)
+                #         print(f"\nSuccess! Processed {len(df)} transcript segments")
+                #     except Exception as e:
+                #         print(f"Failed to parse to LabStreamingLayer for file: '{a_file.as_posix()}' Error: {e}")
+                #         pass
+
+        return output_lsl_fif_files, found_valid_output_files, read_valid_output_files_dict
 
 
 def add_absolute_timestamps(csv_path: Union[str, Path], video_filename: Optional[str] = None) -> pd.DataFrame:
