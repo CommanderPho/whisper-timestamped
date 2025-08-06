@@ -8,6 +8,7 @@ from typing import List
 from whisper.utils import str2bool, optional_float, optional_int
 import whisper_timestamped as whisper
 from whisper_timestamped.transcribe import write_csv, flatten, remove_keys
+from parse_video_filename import build_EDF_compatible_video_filename, parse_video_filename
 
 try:
     # Old whisper version # Before https://github.com/openai/whisper/commit/da600abd2b296a5450770b872c3765d0a5a5c769
@@ -206,10 +207,10 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
     progress_files = []
     output_dir
 
+    ## Alias directory to hold EDF+ compatibly named videos (with appropriate filenames)
+    alias_dir = recordings_dir / "edf_video_aliases"
+    alias_dir.mkdir(exist_ok=True)
 
-
-
-    
     if not video_files:
         print(f"No video files found in {recordings_dir}")
         return
@@ -222,6 +223,15 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
         print(f"\nProcessing: {video_file.name}")
         # Generate output filenames
         base_name = video_file.stem
+
+
+        ## try making a symlink with an EDF+ compatible formatted name: https://www.edfplus.info/specs/video.html
+        # DD-MMM-YYYY, followed by an underscore, followed by the starttime HHhMMmSS.XXXXs
+        edf_compatible_name = build_EDF_compatible_video_filename(video_file.name)
+        print(f'\tedf_compatible_name: "{edf_compatible_name}"')
+        edf_compatible_path = alias_dir / edf_compatible_name
+        if not edf_compatible_path.exists():
+            edf_compatible_path.symlink_to(video_file.resolve())
 
         ## check if its outputs exist already
         found_output_files: List[Path] = find_extant_output_files(output_dir=output_dir, base_name=base_name)
