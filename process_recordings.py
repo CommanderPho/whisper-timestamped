@@ -208,7 +208,7 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
     output_dir
 
     ## Alias directory to hold EDF+ compatibly named videos (with appropriate filenames)
-    alias_dir = recordings_dir / "edf_video_aliases"
+    alias_dir = recordings_dir.parent / "edf_video_aliases"
     alias_dir.mkdir(exist_ok=True)
 
     if not video_files:
