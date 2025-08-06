@@ -231,7 +231,7 @@ class VideoTranscriptToLabStreamingLayer:
 
     @classmethod
     def MAIN_process_all_transcripts(cls, recordings_dir: Path, output_extensions = ['.json']):
-        """ Main function
+        """ Main function - parses all exported transcripts in a directory and produces new LabStreamingLayer (LSL) XDF/FIF streams that are saved to the 'LSL_Converted' subdirectory (which is created if needed)
 
         lsl_stream_output_path, found_valid_output_files, read_valid_output_files_dict = VideoTranscriptToLabStreamingLayer.MAIN_process_all_transcripts(recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve())
 
@@ -239,7 +239,7 @@ class VideoTranscriptToLabStreamingLayer:
         # from whisper.utils import read_csv
 
         # recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve()
-        
+
         # Define the recordings directory
         if isinstance(recordings_dir, str):
             recordings_dir = Path(recordings_dir).resolve()
