@@ -14,6 +14,11 @@ from typing import List, Dict, Tuple, Optional, Union
 from process_recordings import find_extant_output_files, write_results, process_recordings
 
 class VideoTranscriptToLabStreamingLayer:
+    """
+    Convert whisper transcript CSV to LSL (Lab Streaming Layer) compatible format
+    with absolute timestamps and multi-modal analysis support.
+    """
+
     @classmethod
     def add_absolute_timestamps(cls, segments: List, file_basename: Union[datetime, Path, str]) -> List:
         """
@@ -220,12 +225,12 @@ class VideoTranscriptToLabStreamingLayer:
         return lsl_data, raw
     
 
-    @classmethod
-    def save_lsl_stream(cls, stream_data: dict, output_path: Union[str, Path]) -> None:
-        """Save LSL stream data to JSON file."""
-        output_path = Path(output_path)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(stream_data, f, indent=2, ensure_ascii=False)
+    # @classmethod
+    # def save_lsl_stream(cls, stream_data: dict, output_path: Union[str, Path]) -> None:
+    #     """Save LSL stream data to JSON file."""
+    #     output_path = Path(output_path)
+    #     with open(output_path, 'w', encoding='utf-8') as f:
+    #         json.dump(stream_data, f, indent=2, ensure_ascii=False)
                 
 
     @classmethod
