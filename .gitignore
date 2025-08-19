@@ -132,3 +132,4 @@ dmypy.json
 .pyre/
 transcriptions
 live_transcripts/*.wav
+process_recordings.exe
