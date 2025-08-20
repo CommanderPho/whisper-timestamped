@@ -280,7 +280,7 @@ class VideoTranscriptToLabStreamingLayer:
                     is_ready_for_LSL_stream_export: bool = False
                     if len(file_contents['segments']) > 0:
                         try:
-                            file_contents['segments'] = VideoTranscriptToLabStreamingLayer.add_absolute_timestamps(segments=file_contents['segments'], file_basename=a_file.stem)
+                            file_contents['segments'] = cls.add_absolute_timestamps(segments=file_contents['segments'], file_basename=a_file.stem)
                             print(f"\nSuccess! '{a_file.as_posix()}'\n\tProcessed {len(file_contents['segments'])} transcript segments")
                             is_ready_for_LSL_stream_export = True
                         except Exception as e:
@@ -292,7 +292,7 @@ class VideoTranscriptToLabStreamingLayer:
                             try:
                                 # lsl_stream_output_path = lsl_converted_streams_output_dir / f"{a_file.stem}.lsl.json"
                                 lsl_stream_output_path = lsl_converted_streams_output_dir / f"{a_file.stem}.lsl.fif"
-                                lsl_stream_output, raw_lsl_stream_output = VideoTranscriptToLabStreamingLayer.create_lsl_stream_data(file_contents['segments'], stream_save_filename=lsl_stream_output_path)                
+                                lsl_stream_output, raw_lsl_stream_output = cls.create_lsl_stream_data(file_contents['segments'], stream_save_filename=lsl_stream_output_path)                
                                 print(f"\tSuccess exporting to LSL Stream! '{lsl_stream_output_path.as_posix()}'")
                                 output_lsl_fif_files.append(lsl_stream_output_path)
                             except Exception as e:

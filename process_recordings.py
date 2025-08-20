@@ -193,7 +193,7 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
     model_path_root = Path(r'F:\AITEMP\whisper_models').resolve()
     assert model_path_root.exists()
     # model = whisper.load_model("medium.en")
-    model = whisper.load_model("medium.en", download_root=r'F:\AITEMP\whisper_models') # , backend='transformers'
+    model = whisper.load_model("medium.en", download_root=r'F:\AITEMP\whisper_models') # , backend='transformers', device='cuda'
     # model = whisper.load_model("medium.en", backend='transformers') # , download_root=model_path_root.as_posix()
     
     # Get all video files in the recordings directory
