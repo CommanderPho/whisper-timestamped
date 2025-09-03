@@ -38,6 +38,9 @@ live = [
     "sounddevice>=0.4.6",
     "soundfile>=0.12.1",
 ]
+watch = [
+    "watchdog>=4.0.0",
+]
 vad_silero = [
     "onnxruntime>=1.22.1",
     "torchaudio>=2.7.1",
@@ -57,12 +60,14 @@ full = [
     "faster-whisper>=1.0.0",
     "sounddevice>=0.4.6",
     "soundfile>=0.12.1",
+    "watchdog>=4.0.0",
 ]
 
 [project.scripts]
 whisper_timestamped = "whisper_timestamped.transcribe:cli"
 whisper_timestamped_make_subtitles = "whisper_timestamped.make_subtitles:cli"
 whisper_timestamped_live = "whisper_timestamped.live:cli"
+whisper_timestamped_watch = "whisper_timestamped.watcher:cli"
 
 [build-system]
 requires = ["setuptools>=45", "wheel"]
