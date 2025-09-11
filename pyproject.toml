@@ -11,6 +11,7 @@ authors = [
 urls = {Homepage = "https://github.com/CommanderPho/whisper-timestamped"}
 dependencies = [
     "attrs>=25.3.0",
+    "auditok>=0.3.0",
     "cython",
     "dtw-python",
     "ipykernel>=6.30.0",
@@ -23,6 +24,7 @@ dependencies = [
     "pylsl>=1.17.6",
     "pyxdf>=1.17.0",
     "scipy>=1.15.3",
+    "silero-vad>=6.0.0",
     "torch>=2.7.1",
     "torchaudio>=2.7.1",
     "torchvision>=0.22.1",

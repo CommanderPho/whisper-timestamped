@@ -247,7 +247,11 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
                 result = whisper.transcribe(
                     model, 
                     audio, 
-                    language="en"
+                    language="en",
+                    vad="silero",
+                    remove_empty_words=True,
+                    seed=1337,
+                    verbose=True,
                 )
                 
                 # Generate output filenames
