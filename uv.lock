@@ -1813,8 +1813,17 @@ wheels = [
 ]
 
 [[package]]
+name = "wheel"
+version = "0.45.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8a/98/2d9906746cdc6a6ef809ae6338005b3f21bb568bea3165cfc6a243fdc25c/wheel-0.45.1.tar.gz", hash = "sha256:661e1abd9198507b1409a20c02106d9670b2576e916d58f520316666abca6729", size = 107545, upload-time = "2024-11-23T00:18:23.513Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl", hash = "sha256:708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248", size = 72494, upload-time = "2024-11-23T00:18:21.207Z" },
+]
+
+[[package]]
 name = "whisper-timestamped"
-version = "0.0.1"
+version = "0.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "attrs" },
@@ -1825,16 +1834,20 @@ dependencies = [
     { name = "mne" },
     { name = "mne-lsl" },
     { name = "numpy" },
+    { name = "onnxruntime" },
     { name = "openai-whisper" },
     { name = "pandas" },
     { name = "pyinstaller" },
     { name = "pylsl" },
     { name = "pyxdf" },
     { name = "scipy" },
+    { name = "setuptools" },
     { name = "silero-vad" },
     { name = "torch" },
     { name = "torchaudio" },
     { name = "torchvision" },
+    { name = "transformers" },
+    { name = "wheel" },
 ]
 
 [package.optional-dependencies]
@@ -1887,6 +1900,7 @@ requires-dist = [
     { name = "mne", specifier = ">=1.10.0" },
     { name = "mne-lsl", specifier = ">=1.10.1" },
     { name = "numpy", specifier = ">=2.2.6" },
+    { name = "onnxruntime", specifier = ">=1.22.1" },
     { name = "onnxruntime", marker = "extra == 'full'", specifier = ">=1.22.1" },
     { name = "onnxruntime", marker = "extra == 'vad-silero'", specifier = ">=1.22.1" },
     { name = "openai-whisper", git = "https://github.com/openai/whisper.git" },
@@ -1895,6 +1909,7 @@ requires-dist = [
     { name = "pylsl", specifier = ">=1.17.6" },
     { name = "pyxdf", specifier = ">=1.17.0" },
     { name = "scipy", specifier = ">=1.15.3" },
+    { name = "setuptools", specifier = ">=80.9.0" },
     { name = "silero-vad", specifier = ">=6.0.0" },
     { name = "sounddevice", marker = "extra == 'full'", specifier = ">=0.4.6" },
     { name = "sounddevice", marker = "extra == 'live'", specifier = ">=0.4.6" },
@@ -1905,9 +1920,11 @@ requires-dist = [
     { name = "torchaudio", marker = "extra == 'full'", specifier = ">=2.7.1" },
     { name = "torchaudio", marker = "extra == 'vad-silero'", specifier = ">=2.7.1" },
     { name = "torchvision", specifier = ">=0.22.1" },
+    { name = "transformers", specifier = ">=4.53.2" },
     { name = "transformers", marker = "extra == 'dev'", specifier = ">=4.53.2" },
     { name = "transformers", marker = "extra == 'full'", specifier = ">=4.53.2" },
     { name = "watchdog", marker = "extra == 'full'", specifier = ">=4.0.0" },
     { name = "watchdog", marker = "extra == 'watch'", specifier = ">=4.0.0" },
+    { name = "wheel", specifier = ">=0.45.1" },
 ]
 provides-extras = ["dev", "live", "watch", "vad-silero", "vad-auditok", "test", "full"]

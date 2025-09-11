@@ -9,6 +9,8 @@ from whisper.utils import str2bool, optional_float, optional_int
 import whisper_timestamped as whisper
 from whisper_timestamped.transcribe import write_csv, flatten, remove_keys
 from parse_video_filename import build_EDF_compatible_video_filename, parse_video_filename
+# from whisper_timestamped import remove_non_speech
+from whisper_timestamped.transcribe import remove_non_speech
 
 try:
     # Old whisper version # Before https://github.com/openai/whisper/commit/da600abd2b296a5450770b872c3765d0a5a5c769
@@ -192,13 +194,11 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
     print("Loading Whisper model...")
     model_path_root = Path(r'F:\AITEMP\whisper_models').resolve()
     assert model_path_root.exists()
-    # model_name: str = "medium.en"
-    model_name: str = "large-v3"
+    model_name: str = "medium.en"
+    # model_name: str = "large-v3"
     # model = whisper.load_model("medium.en")
     model = whisper.load_model(model_name, download_root=r'F:\AITEMP\whisper_models') # , backend='transformers', device='cuda'
     # model = whisper.load_model("medium.en", backend='transformers') # , download_root=model_path_root.as_posix()
-    
-
     
     # Get all video files in the recordings directory
     
@@ -247,16 +247,20 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
                 # Load audio from video file
                 audio = whisper.load_audio(str(video_file))
                 
+                
+                # audio_speech, segments, convert_timestamps = remove_non_speech(audio, vad="silero")
+                
+
                 # Transcribe with timestamps
                 result = whisper.transcribe(
                     model, 
                     audio, 
                     language="en",
-                    # vad="silero",
-                    vad="auditok",
+                    vad="silero",
+                    # vad="auditok",
                     remove_empty_words=True,
-                    seed=1337,
-                    verbose=True,
+                    # seed=1337,
+                    # verbose=True,
                 )
                 
                 # Generate output filenames
