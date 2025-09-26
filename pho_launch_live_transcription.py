@@ -1,4 +1,3 @@
-from typing import Any, Dict, Optional, Tuple
 from RealtimeSTT import AudioToTextRecorder
 import pyautogui
 import pylsl
@@ -17,43 +16,19 @@ import mne
 from pathlib import Path
 import pystray
 from PIL import Image, ImageDraw
-# import keyboard
+import keyboard
 import pyautogui
 import socket
 import sys
-from RealtimeSTT import AudioToTextRecorder
-from attrs import define, field, Factory
+
 
 # _default_xdf_folder = Path(r'E:\Dropbox (Personal)\Databases\UnparsedData\PhoLogToLabStreamingLayer_logs').resolve()
 _default_xdf_folder = Path('/media/halechr/MAX/cloud/University of Michigan Dropbox/Pho Hale/Personal/LabRecordedTextLog').resolve() ## Lab computer
 
-@define(slots=False)
 class LiveWhisperLoggerApp:
     # Class variable to track if an instance is already running
     _instance_running = False
     _lock_port = 12346  # Port to use for singleton check
-
-    root: tk.Tk = field()
-    last_speech_start_timestamp_dt: datetime = field(default=datetime.now())
-    last_speech_end_timestamp_dt: datetime = field(default=datetime.now())
-    last_speech_processed_timestamp_dt: datetime = field(default=datetime.now())
-
-    ## All in Seconds:
-    last_speech_start_timestamp: Any = field(default=pylsl.local_clock())
-    last_speech_end_timestamp: Any = field(default=pylsl.local_clock())
-    last_speech_processed_timestamp: Any = field(default=pylsl.local_clock())
-
-    active_config: Dict = field(default=Factory(dict))
-    recorder: AudioToTextRecorder = field(init=False)
-
-    lsl_stream_name: str = field(default='WhisperLiveLogger')
-    inlet: pylsl.StreamInlet = field(init=False)    
-    outlet: pylsl.StreamOutlet = field(init=False)
-    
-    # xdf_folder: Path = field(default=_default_xdf_folder)
-    lock_socket: bool = field(default=False)
-    shutting_down: bool = field(default=False)    
-
 
     @classmethod
     def is_instance_running(cls):
@@ -79,359 +54,135 @@ class LiveWhisperLoggerApp:
         """Mark that the instance has stopped"""
         cls._instance_running = False
 
+    def __init__(self, root):
+        self.root = root
+        self.root.title("LSL Live Audio Transcript Logger with XDF Recording")
+        self.root.geometry("600x500")
 
-    def __attrs_post_init__(self):
-        self.active_config = dict(
-            ensure_sentence_starting_uppercase=False,
-            ensure_sentence_ends_with_period=False,
-            # print_transcription_time=True,
-            enable_realtime_transcription=False,
-            )
-        # self.xdf_folder = _default_xdf_folder
+        # Set application icon
+        self.setup_app_icon()
+
+        # Recording state
+        self.recording = False
+        self.recording_thread = None
+        self.inlet = None
+        self.recorded_data = []
+        self.recording_start_time = None
+
+        # System tray and hotkey state
+        self.system_tray = None
+        self.hotkey_popover = None
+        self.is_minimized = False
+
+        # Singleton lock socket
+        self._lock_socket = None
+
+        # Shutdown flag to prevent GUI updates during shutdown
+        self._shutting_down = False
+
+        # Timestamp tracking for text entry
+        self.main_text_timestamp = None
+        self.popover_text_timestamp = None
+
+        # EventBoard configuration and outlet
+        self.eventboard_config = None
+        self.eventboard_outlet = None
+        self.eventboard_buttons = {}
+        self.eventboard_toggle_states = {}  # Track toggle states
+        self.eventboard_time_offsets = {}   # Track time offset dropdowns
+
+        # Create GUI elements first
+        self.setup_gui()
+
+        # Check for recovery files
+        self.check_for_recovery()
 
         # Then create LSL outlets
         self.setup_lsl_outlet()
 
-        
+        # Setup system tray and global hotkey
+        self.setup_system_tray()
+
+    def setup_app_icon(self):
+        """Setup application icon from PNG file based on system theme"""
+        try:
+            # Detect system theme and choose appropriate icon
+            icon_filename = self.get_theme_appropriate_icon()
+            icon_path = Path("icons") / icon_filename
+
+            if icon_path.exists():
+                # Set window icon
+                self.root.iconphoto(True, tk.PhotoImage(file=str(icon_path)))
+                print(f"Application icon set from {icon_path}")
+            else:
+                print(f"Icon file not found: {icon_path}")
+        except Exception as e:
+            print(f"Error setting application icon: {e}")
+
+    def get_theme_appropriate_icon(self):
+        """Get the appropriate icon filename based on system theme"""
+        try:
+            import platform
+
+            if platform.system() == "Windows":
+                return self.detect_windows_theme()
+            else:
+                # For other systems, use a simple heuristic
+                return self.detect_theme_simple()
+
+        except Exception as e:
+            print(f"Error detecting theme: {e}")
+            # Fallback to dark icon
+            return "LogToLabStreamingLayerIcon.png"
+
+    def detect_windows_theme(self):
+        """Detect Windows theme using registry"""
+        try:
+            import winreg
+
+            # Check Windows 10/11 dark mode setting
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+                try:
+                    # Check if dark mode is enabled
+                    dark_mode = winreg.QueryValueEx(key, "AppsUseLightTheme")[0]
+                    if dark_mode == 0:  # Dark mode enabled
+                        return "LogToLabStreamingLayerIcon.png"
+                    else:  # Light mode
+                        return "LogToLabStreamingLayerIcon_Light.png"
+                except FileNotFoundError:
+                    # Registry key doesn't exist, fall back to simple detection
+                    return self.detect_theme_simple()
+        except Exception as e:
+            print(f"Error reading Windows theme registry: {e}")
+            return self.detect_theme_simple()
+
+    def detect_theme_simple(self):
+        """Simple theme detection using tkinter"""
+        try:
+            import tkinter as tk
+
+            # Create a temporary root to test theme
+            temp_root = tk.Tk()
+            temp_root.withdraw()  # Hide the window
+
+            try:
+                # Check the default background color
+                bg_color = temp_root.cget('bg')
+
+                # Simple heuristic: if background is very dark, use light icon
+                if bg_color in ['#2e2e2e', '#3c3c3c', '#404040', 'SystemButtonFace']:
+                    return "LogToLabStreamingLayerIcon.png"
+                else:
+                    return "LogToLabStreamingLayerIcon_Light.png"
+            finally:
+                temp_root.destroy()
+
+        except Exception as e:
+            print(f"Error in simple theme detection: {e}")
+            # Default to dark icon
+            return "LogToLabStreamingLayerIcon_Light.png"
 
-    # def __init__(self, root):
-    #     self.root = root
-    #     self.root.title("LSL Live Audio Transcript Logger with XDF Recording")
-    #     self.root.geometry("600x500")
 
-    #     # Set application icon
-    #     self.setup_app_icon()
-
-    #     # Recording state
-    #     self.recording = False
-    #     self.recording_thread = None
-    #     self.inlet = None
-    #     self.recorded_data = []
-    #     self.recording_start_time = None
-
-    #     # System tray and hotkey state
-    #     self.system_tray = None
-    #     self.hotkey_popover = None
-    #     self.is_minimized = False
-
-    #     # Singleton lock socket
-    #     self._lock_socket = None
-
-    #     # Shutdown flag to prevent GUI updates during shutdown
-    #     self._shutting_down = False
-
-    #     # Timestamp tracking for text entry
-    #     self.main_text_timestamp = None
-    #     self.popover_text_timestamp = None
-
-    #     # Create GUI elements first
-    #     self.setup_gui()
-
-    #     # # Check for recovery files
-    #     # self.check_for_recovery()
-
-    #     # Then create LSL outlets
-    #     self.setup_lsl_outlet()
-
-    #     # Setup system tray and global hotkey
-    #     self.setup_system_tray()
-
-
-    def live_recognition_loop(self):
-        print(f'setting up recorder...')
-        self.recorder = AudioToTextRecorder(**self.active_config, on_recording_start=self.start_callback, on_recording_stop=self.stop_callback,
-                                   on_wakeword_detected=self.wakeword_detected_callback, on_wakeword_timeout=self.wakeword_timeout_callback,     
-                                        #   on_vad_detect_start=
-                                    )
-        print(f'Recorder is ready!')
-    
-
-
-    # ==================================================================================================================================================================================================================================================================================== #
-    # GUI Functions                                                                                                                                                                                                                                                                        #
-    # ==================================================================================================================================================================================================================================================================================== #
-
-    # def setup_gui(self):
-    #     """Create the GUI elements"""
-    #     # Main frame
-    #     main_frame = ttk.Frame(self.root, padding="10")
-    #     main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-
-    #     # Configure grid weights
-    #     self.root.columnconfigure(0, weight=1)
-    #     self.root.rowconfigure(0, weight=1)
-    #     main_frame.columnconfigure(1, weight=1)
-    #     main_frame.rowconfigure(4, weight=1)
-
-    #     # LSL Status label
-    #     self.lsl_status_label = ttk.Label(main_frame, text="LSL Status: Initializing...", foreground="orange")
-    #     self.lsl_status_label.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
-
-    #     # Recording control frame
-    #     recording_frame = ttk.LabelFrame(main_frame, text="XDF Recording", padding="5")
-    #     recording_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
-    #     recording_frame.columnconfigure(1, weight=1)
-
-    #     # Recording status
-    #     self.recording_status_label = ttk.Label(recording_frame, text="Not Recording", foreground="red")
-    #     self.recording_status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
-
-    #     # Recording buttons
-    #     self.start_recording_button = ttk.Button(recording_frame, text="Start Recording", command=self.start_recording)
-    #     self.start_recording_button.grid(row=0, column=1, padx=5)
-
-    #     self.stop_recording_button = ttk.Button(recording_frame, text="Stop Recording", command=self.stop_recording, state="disabled")
-    #     self.stop_recording_button.grid(row=0, column=2, padx=5)
-
-    #     # Add Split Recording button
-    #     self.split_recording_button = ttk.Button(recording_frame, text="Split Recording", command=self.split_recording, state="disabled")
-    #     self.split_recording_button.grid(row=0, column=3, padx=5)
-
-    #     # Add Minimize to Tray button
-    #     self.minimize_button = ttk.Button(recording_frame, text="Minimize to Tray", command=self.toggle_minimize)
-    #     self.minimize_button.grid(row=0, column=4, padx=5)
-
-    #     # EventBoard frame
-    #     self.setup_eventboard_gui(main_frame)
-
-    #     # Text input label and entry frame
-    #     input_frame = ttk.Frame(main_frame)
-    #     input_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
-    #     input_frame.columnconfigure(1, weight=1)
-
-    #     ttk.Label(input_frame, text="Message:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
-
-    #     # Text input box
-    #     self.text_entry = tk.Entry(input_frame, width=50)
-    #     self.text_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(0, 10))
-    #     self.text_entry.bind('<Return>', lambda event: self.log_message())
-    #     self.text_entry.bind('<Key>', self.on_main_text_change)  # Track first keystroke
-    #     self.text_entry.bind('<BackSpace>', self.on_main_text_clear)
-    #     self.text_entry.bind('<Delete>', self.on_main_text_clear)
-
-    #     # Log button
-    #     self.log_button = ttk.Button(input_frame, text="Log", command=self.log_message)
-    #     self.log_button.grid(row=0, column=2)
-
-    #     # Log display area
-    #     ttk.Label(main_frame, text="Log History:").grid(row=4, column=0, sticky=(tk.W, tk.N), pady=(10, 5))
-
-    #     # Scrolled text widget for log history
-    #     self.log_display = scrolledtext.ScrolledText(main_frame, height=15, width=70)
-    #     self.log_display.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
-
-    #     # Bottom frame for buttons and info
-    #     bottom_frame = ttk.Frame(main_frame)
-    #     bottom_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E))
-    #     bottom_frame.columnconfigure(1, weight=1)
-
-    #     # Clear log button
-    #     ttk.Button(bottom_frame, text="Clear Log Display", command=self.clear_log_display).grid(row=0, column=0, sticky=tk.W)
-
-    #     # Status info
-    #     self.status_info_label = ttk.Label(bottom_frame, text="Ready")
-    #     self.status_info_label.grid(row=0, column=2, sticky=tk.E)
-
-    #     # Focus on text entry
-    #     self.text_entry.focus()
-
-
-    # def setup_app_icon(self):
-    #     """Setup application icon from PNG file based on system theme"""
-    #     try:
-    #         # Detect system theme and choose appropriate icon
-    #         icon_filename = self.get_theme_appropriate_icon()
-    #         icon_path = Path("icons") / icon_filename
-
-    #         if icon_path.exists():
-    #             # Set window icon
-    #             self.root.iconphoto(True, tk.PhotoImage(file=str(icon_path)))
-    #             print(f"Application icon set from {icon_path}")
-    #         else:
-    #             print(f"Icon file not found: {icon_path}")
-    #     except Exception as e:
-    #         print(f"Error setting application icon: {e}")
-
-    # def get_theme_appropriate_icon(self):
-    #     """Get the appropriate icon filename based on system theme"""
-    #     try:
-    #         import platform
-
-    #         if platform.system() == "Windows":
-    #             return self.detect_windows_theme()
-    #         else:
-    #             # For other systems, use a simple heuristic
-    #             return self.detect_theme_simple()
-
-    #     except Exception as e:
-    #         print(f"Error detecting theme: {e}")
-    #         # Fallback to dark icon
-    #         return "LogToLabStreamingLayerIcon.png"
-
-    # def detect_windows_theme(self):
-    #     """Detect Windows theme using registry"""
-    #     try:
-    #         import winreg
-
-    #         # Check Windows 10/11 dark mode setting
-    #         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
-    #             try:
-    #                 # Check if dark mode is enabled
-    #                 dark_mode = winreg.QueryValueEx(key, "AppsUseLightTheme")[0]
-    #                 if dark_mode == 0:  # Dark mode enabled
-    #                     return "LogToLabStreamingLayerIcon.png"
-    #                 else:  # Light mode
-    #                     return "LogToLabStreamingLayerIcon_Light.png"
-    #             except FileNotFoundError:
-    #                 # Registry key doesn't exist, fall back to simple detection
-    #                 return self.detect_theme_simple()
-    #     except Exception as e:
-    #         print(f"Error reading Windows theme registry: {e}")
-    #         return self.detect_theme_simple()
-
-    # def detect_theme_simple(self):
-    #     """Simple theme detection using tkinter"""
-    #     try:
-    #         import tkinter as tk
-
-    #         # Create a temporary root to test theme
-    #         temp_root = tk.Tk()
-    #         temp_root.withdraw()  # Hide the window
-
-    #         try:
-    #             # Check the default background color
-    #             bg_color = temp_root.cget('bg')
-
-    #             # Simple heuristic: if background is very dark, use light icon
-    #             if bg_color in ['#2e2e2e', '#3c3c3c', '#404040', 'SystemButtonFace']:
-    #                 return "LogToLabStreamingLayerIcon.png"
-    #             else:
-    #                 return "LogToLabStreamingLayerIcon_Light.png"
-    #         finally:
-    #             temp_root.destroy()
-
-    #     except Exception as e:
-    #         print(f"Error in simple theme detection: {e}")
-    #         # Default to dark icon
-    #         return "LogToLabStreamingLayerIcon_Light.png"
-
-
-    # def setup_system_tray(self):
-    #     """Setup system tray icon and menu"""
-    #     try:
-    #         # Create a simple icon (you can replace this with a custom icon file)
-    #         icon_image = self.create_tray_icon()
-
-    #         # Create system tray menu
-    #         menu = pystray.Menu(
-    #             pystray.MenuItem("Show App", self.show_app),
-    #             pystray.MenuItem("Quick Log", self.show_hotkey_popover),
-    #             pystray.MenuItem("Exit", self.quit_app)
-    #         )
-
-    #         # Create system tray icon
-    #         self.system_tray = pystray.Icon(
-    #             "logger_app",
-    #             icon_image,
-    #             "LSL Live Transcription",
-    #             menu
-    #         )
-
-    #         # Add double-click handler to show app
-    #         self.system_tray.on_activate = self.show_app ## double-clicking doesn't foreground the app by default. Also clicking the windows close "X" just hides it to taskbar by default which I don't want. 
-
-    #         # Start system tray in a separate thread
-    #         threading.Thread(target=self.system_tray.run, daemon=True).start()
-
-    #     except Exception as e:
-    #         print(f"Error setting up system tray: {e}")
-
-    # def create_tray_icon(self):
-    #     """Create icon for the system tray from PNG file based on system theme"""
-    #     try:
-    #         # Use the same theme detection as the main icon
-    #         icon_filename = self.get_theme_appropriate_icon()
-    #         icon_path = Path("icons") / icon_filename
-
-    #         if icon_path.exists():
-    #             # Load and resize the PNG icon for system tray
-    #             image = Image.open(str(icon_path))
-    #             # Resize to appropriate size for system tray (16x16 or 32x32)
-    #             image = image.resize((16, 16), Image.Resampling.LANCZOS)
-    #             return image
-    #         else:
-    #             print(f"Tray icon file not found: {icon_path}, using default")
-    #             return self.create_default_tray_icon()
-    #     except Exception as e:
-    #         print(f"Error loading tray icon: {e}, using default")
-    #         return self.create_default_tray_icon()
-
-    # def create_default_tray_icon(self):
-    #     """Create a simple default icon for the system tray"""
-    #     # Create a 16x16 icon with a simple design
-    #     width = 16
-    #     height = 16
-
-    #     # Create image with a dark background
-    #     image = Image.new('RGB', (width, height), color='#2c3e50')
-    #     draw = ImageDraw.Draw(image)
-
-    #     # Draw a simple "L" shape in white
-    #     draw.rectangle([2, 2, 6, 14], fill='white')  # Vertical line
-    #     draw.rectangle([2, 10, 12, 14], fill='white')  # Horizontal line
-
-    #     return image
-
-
-    # def show_app(self):
-    #     """Show the main application window"""
-    #     self.is_minimized = False
-    #     self.root.deiconify()
-    #     self.root.lift()
-    #     self.root.focus_force()
-
-    # def minimize_to_tray(self):
-    #     """Minimize the app to system tray"""
-    #     self.is_minimized = True
-    #     self.root.withdraw()  # Hide the window
-    #     try:
-    #         if not self._shutting_down:
-    #             self.minimize_button.config(text="Restore from Tray")
-    #     except tk.TclError:
-    #         pass  # GUI is being destroyed
-
-    # def restore_from_tray(self):
-    #     """Restore the app from system tray"""
-    #     self.is_minimized = False
-    #     self.root.deiconify()
-    #     self.root.lift()
-    #     self.root.focus_force()
-    #     try:
-    #         if not self._shutting_down:
-    #             self.minimize_button.config(text="Minimize to Tray")
-    #     except tk.TclError:
-    #         pass  # GUI is being destroyed
-
-    # def toggle_minimize(self):
-    #     """Toggle between minimize and restore"""
-    #     if self.is_minimized:
-    #         self.restore_from_tray()
-    #     else:
-    #         self.minimize_to_tray()
-
-
-    # def quit_app(self):
-    #     """Quit the application completely"""
-    #     if self.system_tray:
-    #         self.system_tray.stop()
-    #     self.on_closing()
-
-
-
-
-    # ==================================================================================================================================================================================================================================================================================== #
-    # SINGLETON INSTANCE HELPERS                                                                                                                                                                                                                                                           #
-    # ==================================================================================================================================================================================================================================================================================== #
     def acquire_singleton_lock(self):
         """Acquire the singleton lock by binding to the port"""
         try:
@@ -457,21 +208,17 @@ class LiveWhisperLoggerApp:
         except Exception as e:
             print(f"Error releasing singleton lock: {e}")
 
-
-    # ==================================================================================================================================================================================================================================================================================== #
-    # LSL Stream Helpers                                                                                                                                                                                                                                                                   #
-    # ==================================================================================================================================================================================================================================================================================== #
     def setup_recording_inlet(self):
         """Setup inlet to record our own stream"""
         try:
             # Look for our own stream
-            streams = pylsl.resolve_byprop('name', self.lsl_stream_name, timeout=2.0)
+            streams = pylsl.resolve_byprop('name', 'TextLogger', timeout=2.0)
             if streams:
                 self.inlet = pylsl.StreamInlet(streams[0])
                 print("Recording inlet created successfully")
 
                 # Auto-start recording after inlet is ready
-                # self.root.after(500, self.auto_start_recording)
+                self.root.after(500, self.auto_start_recording)
 
             else:
                 print("Could not find TextLogger stream for recording")
@@ -479,15 +226,16 @@ class LiveWhisperLoggerApp:
         except Exception as e:
             print(f"Error creating recording inlet: {e}")
             self.inlet = None
-
-
+    # ---------------------------------------------------------------------------- #
+    #                               Recording Methods                              #
+    # ---------------------------------------------------------------------------- #
 
     def setup_lsl_outlet(self):
         """Create an LSL outlet for sending messages"""
         try:
             # Create stream info
             info = pylsl.StreamInfo(
-                name=self.lsl_stream_name,
+                name='WhisperLiveLogger',
                 type='Markers',
                 channel_count=1,
                 nominal_srate=pylsl.IRREGULAR_RATE,
@@ -503,466 +251,799 @@ class LiveWhisperLoggerApp:
             # Create outlet
             self.outlet = pylsl.StreamOutlet(info)
 
-            # # Update LSL status label safely
-            # try:
-            #     if not self._shutting_down:
-            #         self.lsl_status_label.config(text="LSL Status: Connected", foreground="green")
-            # except tk.TclError:
-            #     pass  # GUI is being destroyed
+            # Update LSL status label safely
+            try:
+                if not self._shutting_down:
+                    self.lsl_status_label.config(text="LSL Status: Connected", foreground="green")
+            except tk.TclError:
+                pass  # GUI is being destroyed
 
-            # # Setup inlet for recording our own stream (with delay to allow outlet to be discovered)
-            # self.root.after(1000, self.setup_recording_inlet)
+            # Setup inlet for recording our own stream (with delay to allow outlet to be discovered)
+            self.root.after(1000, self.setup_recording_inlet)
 
         except Exception as e:
             try:
                 if not self._shutting_down:
-                    error_str: str = f"LSL Status: Error - {str(e)}"
-                    print(f'ERROR: {error_str}')
-                    # self.lsl_status_label.config(text=error_str, foreground="red")
+                    self.lsl_status_label.config(text=f"LSL Status: Error - {str(e)}", foreground="red")
             except tk.TclError:
                 pass  # GUI is being destroyed
             self.outlet = None
 
 
+    def setup_system_tray(self):
+        """Setup system tray icon and menu"""
+        try:
+            # Create a simple icon (you can replace this with a custom icon file)
+            icon_image = self.create_tray_icon()
 
-    # ==================================================================================================================================================================================================================================================================================== #
-    # Active Callbacks                                                                                                                                                                                                                                                                     #
-    # ==================================================================================================================================================================================================================================================================================== #
-    def start_callback(self):
-        print("Recording started!")
-        self.last_speech_start_timestamp = pylsl.local_clock()
-        self.last_speech_start_timestamp_dt = datetime.now()
+            # Create system tray menu
+            menu = pystray.Menu(
+                pystray.MenuItem("Show App", self.show_app),
+                pystray.MenuItem("Quick Log", self.show_hotkey_popover),
+                pystray.MenuItem("Exit", self.quit_app)
+            )
 
-    def stop_callback(self):
-        print("Recording stopped!")
-        self.last_speech_end_timestamp = pylsl.local_clock()
-        self.last_speech_end_timestamp_dt = datetime.now()
+            # Create system tray icon
+            self.system_tray = pystray.Icon(
+                "logger_app",
+                icon_image,
+                "LSL Live Transcription",
+                menu
+            )
 
-    def wakeword_detected_callback(self):
-        print("Wakeword Detected!")
-            
-    def wakeword_timeout_callback(self):
-        print("\t...wakeword timeout")
+            # Add double-click handler to show app
+            self.system_tray.on_activate = self.show_app ## double-clicking doesn't foreground the app by default. Also clicking the windows close "X" just hides it to taskbar by default which I don't want. 
 
-    def process_text(self, text: str):
-        """ called when text is decoded."""
-        self.last_speech_processed_timestamp = pylsl.local_clock()
-        self.last_speech_processed_timestamp_dt = datetime.now()
+            # Start system tray in a separate thread
+            threading.Thread(target=self.system_tray.run, daemon=True).start()
 
-        self.perform_log_message(text)
-        # self.last_speech_end_timestamp = pylsl.local_clock()
-        # pyautogui.typewrite(text + " ")
-        
+        except Exception as e:
+            print(f"Error setting up system tray: {e}")
 
-    # # ---------------------------------------------------------------------------- #
-    # #                               Recording Methods                              #
-    # # ---------------------------------------------------------------------------- #
-    # def start_recording(self):
-    #     """Start XDF recording"""
-    #     if not self.inlet:
-    #         messagebox.showerror("Error", "No LSL inlet available for recording")
+
+    def create_tray_icon(self):
+        """Create icon for the system tray from PNG file based on system theme"""
+        try:
+            # Use the same theme detection as the main icon
+            icon_filename = self.get_theme_appropriate_icon()
+            icon_path = Path("icons") / icon_filename
+
+            if icon_path.exists():
+                # Load and resize the PNG icon for system tray
+                image = Image.open(str(icon_path))
+                # Resize to appropriate size for system tray (16x16 or 32x32)
+                image = image.resize((16, 16), Image.Resampling.LANCZOS)
+                return image
+            else:
+                print(f"Tray icon file not found: {icon_path}, using default")
+                return self.create_default_tray_icon()
+        except Exception as e:
+            print(f"Error loading tray icon: {e}, using default")
+            return self.create_default_tray_icon()
+
+    def create_default_tray_icon(self):
+        """Create a simple default icon for the system tray"""
+        # Create a 16x16 icon with a simple design
+        width = 16
+        height = 16
+
+        # Create image with a dark background
+        image = Image.new('RGB', (width, height), color='#2c3e50')
+        draw = ImageDraw.Draw(image)
+
+        # Draw a simple "L" shape in white
+        draw.rectangle([2, 2, 6, 14], fill='white')  # Vertical line
+        draw.rectangle([2, 10, 12, 14], fill='white')  # Horizontal line
+
+        return image
+
+    # def setup_global_hotkey(self):
+    #     """Setup global hotkey for quick log entry"""
+    #     try:
+    #         # Register Ctrl+Alt+L as the global hotkey
+    #         keyboard.add_hotkey('ctrl+alt+l', self.show_hotkey_popover)
+    #         print("Global hotkey Ctrl+Alt+L registered successfully")
+    #     except Exception as e:
+    #         print(f"Error setting up global hotkey: {e}")
+
+    # def show_hotkey_popover(self):
+    #     """Show the hotkey popover for quick log entry"""
+    #     if self.hotkey_popover:
+    #         # If popover already exists, just focus it and select text
+    #         self.hotkey_popover.focus_force()
+    #         self.hotkey_popover.lift()
+    #         self.quick_log_entry.focus()
+    #         self.quick_log_entry.select_range(0, tk.END)
+    #         # Additional focus handling for existing popover
+    #         self.hotkey_popover.after(10, self.ensure_focus)
     #         return
 
-    #     # Create default filename with timestamp
-    #     current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #     default_filename = f"{current_timestamp}_log.xdf"
-
-    #     # Ensure the default directory exists
-    #     _default_xdf_folder.mkdir(parents=True, exist_ok=True)
-
-    #     filename = filedialog.asksaveasfilename(
-    #         initialdir=str(_default_xdf_folder),
-    #         initialfile=default_filename,
-    #         defaultextension=".xdf",
-    #         filetypes=[("XDF files", "*.xdf"), ("All files", "*.*")],
-    #         title="Save XDF Recording As"
-    #     )
-
-    #     if not filename:
-    #         return
-
-    #     self.recording = True
-    #     self.recorded_data = []
-    #     self.recording_start_time = pylsl.local_clock()
-    #     self.xdf_filename = filename
-
-    #     # Create backup file for crash recovery
-    #     self.backup_filename = str(Path(filename).with_suffix('.backup.json'))
-
-    #     # Update GUI
-    #     try:
-    #         if not self._shutting_down:
-    #             self.recording_status_label.config(text="Recording...", foreground="green")
-    #             self.start_recording_button.config(state="disabled")
-    #             self.stop_recording_button.config(state="normal")
-    #             self.split_recording_button.config(state="normal")  # Enable split button
-    #             self.status_info_label.config(text=f"Recording to: {os.path.basename(filename)}")
-    #     except tk.TclError:
-    #         pass  # GUI is being destroyed
-
-    #     # Start recording thread
-    #     self.recording_thread = threading.Thread(target=self.recording_worker, daemon=True)
-    #     self.recording_thread.start()
-
-    #     self.update_log_display("XDF Recording started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-    # def auto_start_recording(self):
-    #     """Automatically start recording on app launch if inlet is available"""
-    #     if not self.inlet:
-    #         print("Cannot auto-start recording: no inlet available")
-    #         return
-
-    #     try:
-    #         # Create default filename with timestamp
-    #         current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #         default_filename = f"{current_timestamp}_log.xdf"
-
-    #         # Ensure the default directory exists
-    #         _default_xdf_folder.mkdir(parents=True, exist_ok=True)
-
-    #         # Set filename directly without dialog
-    #         self.xdf_filename = str(_default_xdf_folder / default_filename)
-
-    #         self.recording = True
-    #         self.recorded_data = []
-    #         self.recording_start_time = pylsl.local_clock()
-
-    #         # Create backup file for crash recovery
-    #         self.backup_filename = str(Path(self.xdf_filename).with_suffix('.backup.json'))
-
-    #         # Update GUI
-    #         try:
-    #             if not self._shutting_down:
-    #                 self.recording_status_label.config(text="Recording...", foreground="green")
-    #                 self.start_recording_button.config(state="disabled")
-    #                 self.stop_recording_button.config(state="normal")
-    #                 self.split_recording_button.config(state="normal")  # Enable split button
-    #                 self.status_info_label.config(text=f"Auto-recording to: {os.path.basename(self.xdf_filename)}")
-    #         except tk.TclError:
-    #             pass  # GUI is being destroyed
-
-    #         # Start recording thread
-    #         self.recording_thread = threading.Thread(target=self.recording_worker, daemon=True)
-    #         self.recording_thread.start()
-
-    #         self.update_log_display("XDF Recording auto-started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    #         print(f"Auto-started recording to: {self.xdf_filename}")
-
-    #         # Log the auto-start event both in GUI and via LSL
-    #         auto_start_message = f"RECORDING_AUTO_STARTED: {default_filename}"
-    #         self.send_lsl_message(auto_start_message)  # Send via LSL
-    #         self.update_log_display("XDF Recording auto-started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    #         print(f"Auto-started recording to: {self.xdf_filename}")
-
-    #     except Exception as e:
-    #         print(f"Error auto-starting recording: {e}")
-    #         self.update_log_display(f"Auto-start failed: {str(e)}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-
-    # def recording_worker(self):
-    #     """Background thread for recording LSL data with incremental backup"""
-    #     sample_count = 0
-
-    #     while self.recording and self.inlet:
-    #         try:
-    #             sample, timestamp = self.inlet.pull_sample(timeout=1.0)
-    #             if sample:
-    #                 data_point = {
-    #                     'sample': sample,
-    #                     'timestamp': timestamp
-    #                 }
-    #                 self.recorded_data.append(data_point)
-    #                 sample_count += 1
-
-    #                 # Auto-save every 10 samples to backup file
-    #                 if sample_count % 10 == 0:
-    #                     self.save_backup()
-
-    #         except Exception as e:
-    #             print(f"Error in recording worker: {e}")
-    #             break
-
-    # def stop_recording(self):
-    #     """Stop XDF recording and save file"""
-    #     if not self.recording:
-    #         return
-
-    #     self.recording = False
-
-    #     # Log the stop event via LSL before saving
-    #     stop_message = f"RECORDING_STOPPED: {os.path.basename(self.xdf_filename)}"
-    #     self.send_lsl_message(stop_message)
-
-    #     # Wait for recording thread to finish
-    #     if self.recording_thread and self.recording_thread.is_alive():
-    #         self.recording_thread.join(timeout=2.0)
-
-
-    #     # Save XDF file
-    #     self.save_xdf_file()
-
-    #     # Clean up backup file
-    #     try:
-    #         if hasattr(self, 'backup_filename') and os.path.exists(self.backup_filename):
-    #             os.remove(self.backup_filename)
-    #     except Exception as e:
-    #         print(f"Error removing backup file: {e}")
-
-    #     # Update GUI
-    #     try:
-    #         if not self._shutting_down:
-    #             self.recording_status_label.config(text="Not Recording", foreground="red")
-    #             self.start_recording_button.config(state="normal")
-    #             self.stop_recording_button.config(state="disabled")
-    #             self.split_recording_button.config(state="disabled")  # Disable split button
-    #             self.status_info_label.config(text="Ready")
-    #     except tk.TclError:
-    #         pass  # GUI is being destroyed
-
-    #     self.update_log_display("XDF Recording stopped and saved", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-
-    # def split_recording(self):
-    #     """Split recording into a new file - stop current and start new"""
-    #     if not self.recording:
-    #         return
-
-    #     try:
-    #         # Stop current recording (this will save the current data)
-    #         self.stop_recording()
-
-    #         # Wait a moment for the stop to complete
-    #         self.root.after(100, self.start_new_split_recording)
-
-    #     except Exception as e:
-    #         print(f"Error splitting recording: {e}")
-    #         self.update_log_display(f"Split recording failed: {str(e)}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-
-    # def start_new_split_recording(self):
-    #     """Start new recording after split"""
-    #     if not self.inlet:
-    #         print("Cannot split recording: no inlet available")
-    #         return
-
-    #     try:
-    #         # Create new filename with timestamp
-    #         current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #         new_filename = f"{current_timestamp}_log.xdf"
-
-    #         # Ensure the default directory exists
-    #         _default_xdf_folder.mkdir(parents=True, exist_ok=True)
-
-    #         # Set new filename directly
-    #         self.xdf_filename = str(_default_xdf_folder / new_filename)
-
-    #         self.recording = True
-    #         self.recorded_data = []
-    #         self.recording_start_time = pylsl.local_clock()
-
-    #         # Create backup file for crash recovery
-    #         self.backup_filename = str(Path(self.xdf_filename).with_suffix('.backup.json'))
-
-    #         # Update GUI
-    #         try:
-    #             if not self._shutting_down:
-    #                 self.recording_status_label.config(text="Recording...", foreground="green")
-    #                 self.start_recording_button.config(state="disabled")
-    #                 self.stop_recording_button.config(state="normal")
-    #                 self.split_recording_button.config(state="normal")
-    #                 self.status_info_label.config(text=f"Split to: {os.path.basename(self.xdf_filename)}")
-    #         except tk.TclError:
-    #             pass  # GUI is being destroyed
-
-    #         # Start recording thread
-    #         self.recording_thread = threading.Thread(target=self.recording_worker, daemon=True)
-    #         self.recording_thread.start()
-
-    #         self.update_log_display(f"Recording split to new file: {new_filename}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    #         print(f"Split recording to new file: {self.xdf_filename}")
-
-    #         # Log the split event both in GUI and via LSL
-    #         split_message = f"RECORDING_SPLIT_NEW_FILE: {new_filename}"
-    #         self.send_lsl_message(split_message)  # Send via LSL
-    #         self.update_log_display(f"Recording split to new file: {new_filename}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    #         print(f"Split recording to new file: {self.xdf_filename}")
-
-    #     except Exception as e:
-    #         print(f"Error starting new split recording: {e}")
-    #         self.update_log_display(f"Split restart failed: {str(e)}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-
-    # # ---------------------------------------------------------------------------- #
-    # #                             Backups and Recovery                             #
-    # # ---------------------------------------------------------------------------- #
-    # def save_backup(self):
-    #     """Save current data to backup file"""
-    #     try:
-    #         backup_data = {
-    #             'recorded_data': self.recorded_data,
-    #             'recording_start_time': self.recording_start_time,
-    #             'sample_count': len(self.recorded_data)
-    #         }
-
-    #         with open(self.backup_filename, 'w') as f:
-    #             json.dump(backup_data, f, default=str)
-
-    #     except Exception as e:
-    #         print(f"Error saving backup: {e}")
-
-
-    # def check_for_recovery(self):
-    #     """Check for backup files and offer recovery on startup"""
-    #     backup_files = list(_default_xdf_folder.glob('*.backup.json'))
-
-    #     if backup_files:
-    #         response = messagebox.askyesno(
-    #             "Recovery Available", 
-    #             f"Found {len(backup_files)} backup file(s) from previous sessions. "
-    #             "Would you like to recover them?"
-    #         )
-
-    #         if response:
-    #             for backup_file in backup_files:
-    #                 self.recover_from_backup(backup_file)
-
-    # def recover_from_backup(self, backup_file):
-    #     """Recover data from backup file"""
-    #     try:
-    #         with open(backup_file, 'r') as f:
-    #             backup_data = json.load(f)
-
-    #         # Ask user for recovery filename
-    #         original_name = backup_file.stem.replace('.backup', '')
-    #         recovery_filename = filedialog.asksaveasfilename(
-    #             initialdir=str(_default_xdf_folder),
-    #             initialfile=f"{original_name}_recovered.xdf",
-    #             defaultextension=".xdf",
-    #             filetypes=[("XDF files", "*.xdf"), ("All files", "*.*")],
-    #             title="Save Recovered XDF As"
-    #         )
-
-    #         if recovery_filename:
-    #             # Restore data
-    #             self.recorded_data = backup_data['recorded_data']
-    #             self.xdf_filename = recovery_filename
-
-    #             # Save as XDF
-    #             self.save_xdf_file()
-
-    #             # Remove backup file
-    #             os.remove(backup_file)
-
-    #             messagebox.showinfo("Recovery Complete", 
-    #                 f"Recovered {len(self.recorded_data)} samples to {recovery_filename}")
-
-    #     except Exception as e:
-    #         messagebox.showerror("Recovery Error", f"Failed to recover from backup: {str(e)}")
+    #     # Create popover window
+    #     self.hotkey_popover = tk.Toplevel()
+    #     self.hotkey_popover.title("LSL Live Transcription")
+    #     self.hotkey_popover.geometry("600x220")
+
+    #     # Center the popover on the screen
+    #     self.center_popover_on_active_monitor()
+
+    #     # Make it always on top
+    #     self.hotkey_popover.attributes('-topmost', True)
+
+    #     # Remove window decorations for a cleaner look
+    #     self.hotkey_popover.overrideredirect(True)
+
+    #     # Force the popover to grab focus first
+    #     self.hotkey_popover.focus_force()
+    #     self.hotkey_popover.grab_set()  # Make it modal
+
+    #     # Create content
+    #     content_frame = ttk.Frame(self.hotkey_popover, padding="20")
+    #     content_frame.pack(fill=tk.BOTH, expand=True)
+
+    #     # Title label
+    #     title_label = ttk.Label(content_frame, text="LSL Live Transcription", font=("Arial", 14, "bold"))
+    #     title_label.pack(pady=(0, 15))
+
+    #     # Entry field
+    #     entry_frame = ttk.Frame(content_frame)
+    #     entry_frame.pack(fill=tk.X, pady=(0, 10))
+
+    #     entry_label = ttk.Label(entry_frame, text="Message:")
+    #     entry_label.pack(anchor=tk.W)
+
+    #     self.quick_log_entry = tk.Entry(entry_frame, font=("Arial", 12))
+    #     self.quick_log_entry.pack(fill=tk.X, pady=(5, 0))
+    #     self.quick_log_entry.bind('<Key>', self.on_popover_text_change)  # Track first keystroke
+    #     self.quick_log_entry.bind('<BackSpace>', self.on_popover_text_clear)
+    #     self.quick_log_entry.bind('<Delete>', self.on_popover_text_clear)
+
+    #     # Instructions label
+    #     instructions_label = ttk.Label(content_frame, text="Press Enter to log, Esc to cancel", 
+    #                                  font=("Arial", 9), foreground="gray")
+    #     instructions_label.pack(pady=(5, 0))
+
+    #     # Bind Enter key to log and close
+    #     self.quick_log_entry.bind('<Return>', lambda e: self.quick_log_and_close())
+
+    #     # Bind Escape key to close without logging
+    #     self.hotkey_popover.bind('<Escape>', lambda e: self.close_hotkey_popover())
+
+    #     # Focus the entry field and select all text
+    #     self.quick_log_entry.focus()
+    #     self.quick_log_entry.select_range(0, tk.END)
+
+    #     # Additional focus handling to ensure it works reliably
+    #     self.hotkey_popover.after(10, self.ensure_focus)
+
+    #     # Handle window close
+    #     self.hotkey_popover.protocol("WM_DELETE_WINDOW", self.close_hotkey_popover)
+
+    def ensure_focus(self):
+        """Ensure the text entry field has focus"""
+        if self.hotkey_popover and self.quick_log_entry:
+            self.quick_log_entry.focus_force()
+            self.quick_log_entry.select_range(0, tk.END)
+
+    def on_main_text_change(self, event=None):
+        """Track when user first types in main text field"""
+        if self.main_text_timestamp is None:
+            self.main_text_timestamp = datetime.now()
+
+    def on_popover_text_change(self, event=None):
+        """Track when user first types in popover text field"""
+        if self.popover_text_timestamp is None:
+            self.popover_text_timestamp = datetime.now()
+
+    def on_main_text_clear(self, event=None):
+        """Reset timestamp when main text field is cleared"""
+        if event and event.keysym in ['BackSpace', 'Delete']:
+            # Check if field is now empty
+            if not self.text_entry.get().strip():
+                self.main_text_timestamp = None
+
+    def on_popover_text_clear(self, event=None):
+        """Reset timestamp when popover text field is cleared"""
+        if event and event.keysym in ['BackSpace', 'Delete']:
+            # Check if field is now empty
+            if not self.quick_log_entry.get().strip():
+                self.popover_text_timestamp = None
+
+    def get_main_text_timestamp(self):
+        """Get the timestamp when user first started typing in main field"""
+        if self.main_text_timestamp:
+            timestamp = self.main_text_timestamp
+            self.main_text_timestamp = None  # Reset for next entry
+            return timestamp
+        return datetime.now()
+
+    def get_popover_text_timestamp(self):
+        """Get the timestamp when user first started typing in popover field"""
+        if self.popover_text_timestamp:
+            timestamp = self.popover_text_timestamp
+            self.popover_text_timestamp = None  # Reset for next entry
+            return timestamp
+        return datetime.now()
+
+    def center_popover_on_active_monitor(self):
+        """Center the popover on the currently active monitor"""
+        try:
+            # Get screen dimensions and center the popover
+            screen_width = self.hotkey_popover.winfo_screenwidth()
+            screen_height = self.hotkey_popover.winfo_screenheight()
+            x = (screen_width - 400) // 2
+            y = (screen_height - 150) // 2
+            self.hotkey_popover.geometry(f"+{x}+{y}")
+
+        except Exception as e:
+            print(f"Error centering popover: {e}")
+            # Fallback to screen center
+            screen_width = self.hotkey_popover.winfo_screenwidth()
+            screen_height = self.hotkey_popover.winfo_screenheight()
+            x = (screen_width - 400) // 2
+            y = (screen_height - 150) // 2
+            self.hotkey_popover.geometry(f"+{x}+{y}")
+
+    def quick_log_and_close(self):
+        """Log the message and close the popover"""
+        message = self.quick_log_entry.get().strip()
+        if message:
+            # Send LSL message
+            self.send_lsl_message(message)
+
+            # Update main app display if visible
+            if not self.is_minimized:
+                # Use the timestamp when user first started typing in popover
+                timestamp = self.get_popover_text_timestamp().strftime("%Y-%m-%d %H:%M:%S")
+                self.update_log_display(message, timestamp)
+
+            # Clear entry
+            self.quick_log_entry.delete(0, tk.END)
+
+        # Close popover
+        self.close_hotkey_popover()
+
+    def close_hotkey_popover(self):
+        """Close the hotkey popover"""
+        if self.hotkey_popover:
+            self.hotkey_popover.destroy()
+            self.hotkey_popover = None
+
+    def show_app(self):
+        """Show the main application window"""
+        self.is_minimized = False
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+
+    def minimize_to_tray(self):
+        """Minimize the app to system tray"""
+        self.is_minimized = True
+        self.root.withdraw()  # Hide the window
+        try:
+            if not self._shutting_down:
+                self.minimize_button.config(text="Restore from Tray")
+        except tk.TclError:
+            pass  # GUI is being destroyed
+
+    def restore_from_tray(self):
+        """Restore the app from system tray"""
+        self.is_minimized = False
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+        try:
+            if not self._shutting_down:
+                self.minimize_button.config(text="Minimize to Tray")
+        except tk.TclError:
+            pass  # GUI is being destroyed
+
+    def toggle_minimize(self):
+        """Toggle between minimize and restore"""
+        if self.is_minimized:
+            self.restore_from_tray()
+        else:
+            self.minimize_to_tray()
+
+    def quit_app(self):
+        """Quit the application completely"""
+        if self.system_tray:
+            self.system_tray.stop()
+        self.on_closing()
+
+
+    def setup_gui(self):
+        """Create the GUI elements"""
+        # Main frame
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        # Configure grid weights
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(4, weight=1)
+
+        # LSL Status label
+        self.lsl_status_label = ttk.Label(main_frame, text="LSL Status: Initializing...", foreground="orange")
+        self.lsl_status_label.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+
+        # Recording control frame
+        recording_frame = ttk.LabelFrame(main_frame, text="XDF Recording", padding="5")
+        recording_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        recording_frame.columnconfigure(1, weight=1)
+
+        # Recording status
+        self.recording_status_label = ttk.Label(recording_frame, text="Not Recording", foreground="red")
+        self.recording_status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+
+        # Recording buttons
+        self.start_recording_button = ttk.Button(recording_frame, text="Start Recording", command=self.start_recording)
+        self.start_recording_button.grid(row=0, column=1, padx=5)
+
+        self.stop_recording_button = ttk.Button(recording_frame, text="Stop Recording", command=self.stop_recording, state="disabled")
+        self.stop_recording_button.grid(row=0, column=2, padx=5)
+
+        # Add Split Recording button
+        self.split_recording_button = ttk.Button(recording_frame, text="Split Recording", command=self.split_recording, state="disabled")
+        self.split_recording_button.grid(row=0, column=3, padx=5)
+
+        # Add Minimize to Tray button
+        self.minimize_button = ttk.Button(recording_frame, text="Minimize to Tray", command=self.toggle_minimize)
+        self.minimize_button.grid(row=0, column=4, padx=5)
+
+        # EventBoard frame
+        self.setup_eventboard_gui(main_frame)
+
+        # Text input label and entry frame
+        input_frame = ttk.Frame(main_frame)
+        input_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        input_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(input_frame, text="Message:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+
+        # Text input box
+        self.text_entry = tk.Entry(input_frame, width=50)
+        self.text_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(0, 10))
+        self.text_entry.bind('<Return>', lambda event: self.log_message())
+        self.text_entry.bind('<Key>', self.on_main_text_change)  # Track first keystroke
+        self.text_entry.bind('<BackSpace>', self.on_main_text_clear)
+        self.text_entry.bind('<Delete>', self.on_main_text_clear)
+
+        # Log button
+        self.log_button = ttk.Button(input_frame, text="Log", command=self.log_message)
+        self.log_button.grid(row=0, column=2)
+
+        # Log display area
+        ttk.Label(main_frame, text="Log History:").grid(row=4, column=0, sticky=(tk.W, tk.N), pady=(10, 5))
+
+        # Scrolled text widget for log history
+        self.log_display = scrolledtext.ScrolledText(main_frame, height=15, width=70)
+        self.log_display.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+
+        # Bottom frame for buttons and info
+        bottom_frame = ttk.Frame(main_frame)
+        bottom_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        bottom_frame.columnconfigure(1, weight=1)
+
+        # Clear log button
+        ttk.Button(bottom_frame, text="Clear Log Display", command=self.clear_log_display).grid(row=0, column=0, sticky=tk.W)
+
+        # Status info
+        self.status_info_label = ttk.Label(bottom_frame, text="Ready")
+        self.status_info_label.grid(row=0, column=2, sticky=tk.E)
+
+        # Focus on text entry
+        self.text_entry.focus()
+
+    # ---------------------------------------------------------------------------- #
+    #                               Recording Methods                              #
+    # ---------------------------------------------------------------------------- #
+    def start_recording(self):
+        """Start XDF recording"""
+        if not self.inlet:
+            messagebox.showerror("Error", "No LSL inlet available for recording")
+            return
+
+        # Create default filename with timestamp
+        current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"{current_timestamp}_log.xdf"
+
+        # Ensure the default directory exists
+        _default_xdf_folder.mkdir(parents=True, exist_ok=True)
+
+        filename = filedialog.asksaveasfilename(
+            initialdir=str(_default_xdf_folder),
+            initialfile=default_filename,
+            defaultextension=".xdf",
+            filetypes=[("XDF files", "*.xdf"), ("All files", "*.*")],
+            title="Save XDF Recording As"
+        )
+
+        if not filename:
+            return
+
+        self.recording = True
+        self.recorded_data = []
+        self.recording_start_time = pylsl.local_clock()
+        self.xdf_filename = filename
+
+        # Create backup file for crash recovery
+        self.backup_filename = str(Path(filename).with_suffix('.backup.json'))
+
+        # Update GUI
+        try:
+            if not self._shutting_down:
+                self.recording_status_label.config(text="Recording...", foreground="green")
+                self.start_recording_button.config(state="disabled")
+                self.stop_recording_button.config(state="normal")
+                self.split_recording_button.config(state="normal")  # Enable split button
+                self.status_info_label.config(text=f"Recording to: {os.path.basename(filename)}")
+        except tk.TclError:
+            pass  # GUI is being destroyed
+
+        # Start recording thread
+        self.recording_thread = threading.Thread(target=self.recording_worker, daemon=True)
+        self.recording_thread.start()
+
+        self.update_log_display("XDF Recording started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    def auto_start_recording(self):
+        """Automatically start recording on app launch if inlet is available"""
+        if not self.inlet:
+            print("Cannot auto-start recording: no inlet available")
+            return
+
+        try:
+            # Create default filename with timestamp
+            current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_filename = f"{current_timestamp}_log.xdf"
+
+            # Ensure the default directory exists
+            _default_xdf_folder.mkdir(parents=True, exist_ok=True)
+
+            # Set filename directly without dialog
+            self.xdf_filename = str(_default_xdf_folder / default_filename)
+
+            self.recording = True
+            self.recorded_data = []
+            self.recording_start_time = pylsl.local_clock()
+
+            # Create backup file for crash recovery
+            self.backup_filename = str(Path(self.xdf_filename).with_suffix('.backup.json'))
+
+            # Update GUI
+            try:
+                if not self._shutting_down:
+                    self.recording_status_label.config(text="Recording...", foreground="green")
+                    self.start_recording_button.config(state="disabled")
+                    self.stop_recording_button.config(state="normal")
+                    self.split_recording_button.config(state="normal")  # Enable split button
+                    self.status_info_label.config(text=f"Auto-recording to: {os.path.basename(self.xdf_filename)}")
+            except tk.TclError:
+                pass  # GUI is being destroyed
+
+            # Start recording thread
+            self.recording_thread = threading.Thread(target=self.recording_worker, daemon=True)
+            self.recording_thread.start()
+
+            self.update_log_display("XDF Recording auto-started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            print(f"Auto-started recording to: {self.xdf_filename}")
+
+            # Log the auto-start event both in GUI and via LSL
+            auto_start_message = f"RECORDING_AUTO_STARTED: {default_filename}"
+            self.send_lsl_message(auto_start_message)  # Send via LSL
+            self.update_log_display("XDF Recording auto-started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            print(f"Auto-started recording to: {self.xdf_filename}")
+
+        except Exception as e:
+            print(f"Error auto-starting recording: {e}")
+            self.update_log_display(f"Auto-start failed: {str(e)}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+    def recording_worker(self):
+        """Background thread for recording LSL data with incremental backup"""
+        sample_count = 0
+
+        while self.recording and self.inlet:
+            try:
+                sample, timestamp = self.inlet.pull_sample(timeout=1.0)
+                if sample:
+                    data_point = {
+                        'sample': sample,
+                        'timestamp': timestamp
+                    }
+                    self.recorded_data.append(data_point)
+                    sample_count += 1
+
+                    # Auto-save every 10 samples to backup file
+                    if sample_count % 10 == 0:
+                        self.save_backup()
+
+            except Exception as e:
+                print(f"Error in recording worker: {e}")
+                break
+
+    def stop_recording(self):
+        """Stop XDF recording and save file"""
+        if not self.recording:
+            return
+
+        self.recording = False
+
+        # Log the stop event via LSL before saving
+        stop_message = f"RECORDING_STOPPED: {os.path.basename(self.xdf_filename)}"
+        self.send_lsl_message(stop_message)
+
+        # Wait for recording thread to finish
+        if self.recording_thread and self.recording_thread.is_alive():
+            self.recording_thread.join(timeout=2.0)
+
+
+        # Save XDF file
+        self.save_xdf_file()
+
+        # Clean up backup file
+        try:
+            if hasattr(self, 'backup_filename') and os.path.exists(self.backup_filename):
+                os.remove(self.backup_filename)
+        except Exception as e:
+            print(f"Error removing backup file: {e}")
+
+        # Update GUI
+        try:
+            if not self._shutting_down:
+                self.recording_status_label.config(text="Not Recording", foreground="red")
+                self.start_recording_button.config(state="normal")
+                self.stop_recording_button.config(state="disabled")
+                self.split_recording_button.config(state="disabled")  # Disable split button
+                self.status_info_label.config(text="Ready")
+        except tk.TclError:
+            pass  # GUI is being destroyed
+
+        self.update_log_display("XDF Recording stopped and saved", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+    def split_recording(self):
+        """Split recording into a new file - stop current and start new"""
+        if not self.recording:
+            return
+
+        try:
+            # Stop current recording (this will save the current data)
+            self.stop_recording()
+
+            # Wait a moment for the stop to complete
+            self.root.after(100, self.start_new_split_recording)
+
+        except Exception as e:
+            print(f"Error splitting recording: {e}")
+            self.update_log_display(f"Split recording failed: {str(e)}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+    def start_new_split_recording(self):
+        """Start new recording after split"""
+        if not self.inlet:
+            print("Cannot split recording: no inlet available")
+            return
+
+        try:
+            # Create new filename with timestamp
+            current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            new_filename = f"{current_timestamp}_log.xdf"
+
+            # Ensure the default directory exists
+            _default_xdf_folder.mkdir(parents=True, exist_ok=True)
+
+            # Set new filename directly
+            self.xdf_filename = str(_default_xdf_folder / new_filename)
+
+            self.recording = True
+            self.recorded_data = []
+            self.recording_start_time = pylsl.local_clock()
+
+            # Create backup file for crash recovery
+            self.backup_filename = str(Path(self.xdf_filename).with_suffix('.backup.json'))
+
+            # Update GUI
+            try:
+                if not self._shutting_down:
+                    self.recording_status_label.config(text="Recording...", foreground="green")
+                    self.start_recording_button.config(state="disabled")
+                    self.stop_recording_button.config(state="normal")
+                    self.split_recording_button.config(state="normal")
+                    self.status_info_label.config(text=f"Split to: {os.path.basename(self.xdf_filename)}")
+            except tk.TclError:
+                pass  # GUI is being destroyed
+
+            # Start recording thread
+            self.recording_thread = threading.Thread(target=self.recording_worker, daemon=True)
+            self.recording_thread.start()
+
+            self.update_log_display(f"Recording split to new file: {new_filename}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            print(f"Split recording to new file: {self.xdf_filename}")
+
+            # Log the split event both in GUI and via LSL
+            split_message = f"RECORDING_SPLIT_NEW_FILE: {new_filename}"
+            self.send_lsl_message(split_message)  # Send via LSL
+            self.update_log_display(f"Recording split to new file: {new_filename}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            print(f"Split recording to new file: {self.xdf_filename}")
+
+        except Exception as e:
+            print(f"Error starting new split recording: {e}")
+            self.update_log_display(f"Split restart failed: {str(e)}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+    # ---------------------------------------------------------------------------- #
+    #                             Backups and Recovery                             #
+    # ---------------------------------------------------------------------------- #
+    def save_backup(self):
+        """Save current data to backup file"""
+        try:
+            backup_data = {
+                'recorded_data': self.recorded_data,
+                'recording_start_time': self.recording_start_time,
+                'sample_count': len(self.recorded_data)
+            }
+
+            with open(self.backup_filename, 'w') as f:
+                json.dump(backup_data, f, default=str)
+
+        except Exception as e:
+            print(f"Error saving backup: {e}")
+
+
+    def check_for_recovery(self):
+        """Check for backup files and offer recovery on startup"""
+        backup_files = list(_default_xdf_folder.glob('*.backup.json'))
+
+        if backup_files:
+            response = messagebox.askyesno(
+                "Recovery Available", 
+                f"Found {len(backup_files)} backup file(s) from previous sessions. "
+                "Would you like to recover them?"
+            )
+
+            if response:
+                for backup_file in backup_files:
+                    self.recover_from_backup(backup_file)
+
+    def recover_from_backup(self, backup_file):
+        """Recover data from backup file"""
+        try:
+            with open(backup_file, 'r') as f:
+                backup_data = json.load(f)
+
+            # Ask user for recovery filename
+            original_name = backup_file.stem.replace('.backup', '')
+            recovery_filename = filedialog.asksaveasfilename(
+                initialdir=str(_default_xdf_folder),
+                initialfile=f"{original_name}_recovered.xdf",
+                defaultextension=".xdf",
+                filetypes=[("XDF files", "*.xdf"), ("All files", "*.*")],
+                title="Save Recovered XDF As"
+            )
+
+            if recovery_filename:
+                # Restore data
+                self.recorded_data = backup_data['recorded_data']
+                self.xdf_filename = recovery_filename
+
+                # Save as XDF
+                self.save_xdf_file()
+
+                # Remove backup file
+                os.remove(backup_file)
+
+                messagebox.showinfo("Recovery Complete", 
+                    f"Recovered {len(self.recorded_data)} samples to {recovery_filename}")
+
+        except Exception as e:
+            messagebox.showerror("Recovery Error", f"Failed to recover from backup: {str(e)}")
 
     # ---------------------------------------------------------------------------- #
     #                              Save/Write Methods                              #
     # ---------------------------------------------------------------------------- #
-    # def save_xdf_file(self):
-    #     """Save recorded data using MNE"""
-    #     if not self.recorded_data:
-    #         messagebox.showwarning("Warning", "No data to save")
-    #         return
+    def save_xdf_file(self):
+        """Save recorded data using MNE"""
+        if not self.recorded_data:
+            messagebox.showwarning("Warning", "No data to save")
+            return
 
-    #     try:
-    #         # Extract messages and timestamps
-    #         messages = []
-    #         timestamps = []
+        try:
+            # Extract messages and timestamps
+            messages = []
+            timestamps = []
 
-    #         for data_point in self.recorded_data:
-    #             message = data_point['sample'][0] if data_point['sample'] else ''
-    #             timestamp = data_point['timestamp']
-    #             messages.append(message)
-    #             timestamps.append(timestamp)
+            for data_point in self.recorded_data:
+                message = data_point['sample'][0] if data_point['sample'] else ''
+                timestamp = data_point['timestamp']
+                messages.append(message)
+                timestamps.append(timestamp)
 
-    #         # Convert timestamps to relative times (from first sample)
-    #         if timestamps:
-    #             first_timestamp = timestamps[0]
-    #             relative_timestamps = [ts - first_timestamp for ts in timestamps]
-    #         else:
-    #             relative_timestamps = []
+            # Convert timestamps to relative times (from first sample)
+            if timestamps:
+                first_timestamp = timestamps[0]
+                relative_timestamps = [ts - first_timestamp for ts in timestamps]
+            else:
+                relative_timestamps = []
 
-    #         # Create annotations (MNE's way of handling markers/events)
-    #         # Set orig_time=None to avoid timing conflicts
-    #         annotations = mne.Annotations(
-    #             onset=relative_timestamps,
-    #             duration=[0.0] * len(relative_timestamps),  # Instantaneous events
-    #             description=messages,
-    #             orig_time=None  # This fixes the timing conflict
-    #         )
+            # Create annotations (MNE's way of handling markers/events)
+            # Set orig_time=None to avoid timing conflicts
+            annotations = mne.Annotations(
+                onset=relative_timestamps,
+                duration=[0.0] * len(relative_timestamps),  # Instantaneous events
+                description=messages,
+                orig_time=None  # This fixes the timing conflict
+            )
 
-    #         # Create a minimal info structure for the markers
-    #         info = mne.create_info(
-    #             ch_names=['TextLogger_Markers'],
-    #             sfreq=1000,  # Dummy sampling rate for the minimal channel
-    #             ch_types=['misc']
-    #         )
+            # Create a minimal info structure for the markers
+            info = mne.create_info(
+                ch_names=['TextLogger_Markers'],
+                sfreq=1000,  # Dummy sampling rate for the minimal channel
+                ch_types=['misc']
+            )
 
-    #         # Create raw object with minimal dummy data
-    #         # We need at least some data points to create a valid Raw object
-    #         if len(timestamps) > 0:
-    #             # Create dummy data spanning the recording duration
-    #             duration = relative_timestamps[-1] if relative_timestamps else 1.0
-    #             n_samples = int(duration * 1000) + 1000  # Add buffer
-    #             dummy_data = np.zeros((1, n_samples))
-    #         else:
-    #             dummy_data = np.zeros((1, 1000))  # Minimum 1 second of data
+            # Create raw object with minimal dummy data
+            # We need at least some data points to create a valid Raw object
+            if len(timestamps) > 0:
+                # Create dummy data spanning the recording duration
+                duration = relative_timestamps[-1] if relative_timestamps else 1.0
+                n_samples = int(duration * 1000) + 1000  # Add buffer
+                dummy_data = np.zeros((1, n_samples))
+            else:
+                dummy_data = np.zeros((1, 1000))  # Minimum 1 second of data
 
-    #         raw = mne.io.RawArray(dummy_data, info)
+            raw = mne.io.RawArray(dummy_data, info)
 
-    #         # Set measurement date to match the first timestamp
-    #         if timestamps:
-    #             raw.set_meas_date(timestamps[0])
+            # Set measurement date to match the first timestamp
+            if timestamps:
+                raw.set_meas_date(timestamps[0])
 
-    #         raw.set_annotations(annotations)
+            raw.set_annotations(annotations)
 
-    #         # Add metadata to the raw object
-    #         raw.info['description'] = 'TextLogger LSL Stream Recording'
-    #         raw.info['experimenter'] = 'PhoLogToLabStreamingLayer'
+            # Add metadata to the raw object
+            raw.info['description'] = 'TextLogger LSL Stream Recording'
+            raw.info['experimenter'] = 'PhoLogToLabStreamingLayer'
 
-    #         # Determine output filename and format
-    #         if self.xdf_filename.endswith('.xdf'):
-    #             # Save as FIF (MNE's native format)
-    #             fif_filename = self.xdf_filename.replace('.xdf', '.fif')
-    #             raw.save(fif_filename, overwrite=True)
-    #             actual_filename = fif_filename
-    #             file_type = "FIF"
-    #         else:
-    #             # Use the original filename
-    #             raw.save(self.xdf_filename, overwrite=True)
-    #             actual_filename = self.xdf_filename
-    #             file_type = "FIF"
+            # Determine output filename and format
+            if self.xdf_filename.endswith('.xdf'):
+                # Save as FIF (MNE's native format)
+                fif_filename = self.xdf_filename.replace('.xdf', '.fif')
+                raw.save(fif_filename, overwrite=True)
+                actual_filename = fif_filename
+                file_type = "FIF"
+            else:
+                # Use the original filename
+                raw.save(self.xdf_filename, overwrite=True)
+                actual_filename = self.xdf_filename
+                file_type = "FIF"
 
-    #         # Also save a CSV for easy reading
+            # Also save a CSV for easy reading
 
 
-    #         if isinstance(actual_filename, str):
-    #             actual_filename = Path(actual_filename).resolve()
+            if isinstance(actual_filename, str):
+                actual_filename = Path(actual_filename).resolve()
 
-    #         _default_CSV_folder = actual_filename.parent.joinpath('CSV')
-    #         _default_CSV_folder.mkdir(parents=True, exist_ok=True)
-    #         print(f'_default_CSV_folder: "{_default_CSV_folder}"')
+            _default_CSV_folder = actual_filename.parent.joinpath('CSV')
+            _default_CSV_folder.mkdir(parents=True, exist_ok=True)
+            print(f'_default_CSV_folder: "{_default_CSV_folder}"')
 
-    #         csv_filename: str = actual_filename.name.replace('.fif', '_events.csv')
-    #         csv_filepath: Path = _default_CSV_folder.joinpath(csv_filename).resolve()
+            csv_filename: str = actual_filename.name.replace('.fif', '_events.csv')
+            csv_filepath: Path = _default_CSV_folder.joinpath(csv_filename).resolve()
 
-    #         self.save_events_csv(csv_filepath, messages, timestamps)
+            self.save_events_csv(csv_filepath, messages, timestamps)
 
-    #         _status_str: str = (f"{file_type} file saved: '{actual_filename}'\n"
-    #             f"Events CSV saved: '{csv_filepath}'\n"
-    #             f"Recorded {len(self.recorded_data)} samples")
-    #         self.update_log_display(_status_str, timestamp=None)
-    #         # messagebox.showinfo("Success", _status_str)
+            _status_str: str = (f"{file_type} file saved: '{actual_filename}'\n"
+                f"Events CSV saved: '{csv_filepath}'\n"
+                f"Recorded {len(self.recorded_data)} samples")
+            self.update_log_display(_status_str, timestamp=None)
+            # messagebox.showinfo("Success", _status_str)
 
-    #     except Exception as e:
-    #         messagebox.showerror("Error", f"Failed to save file: {str(e)}")
-    #         print(f"Detailed error: {e}")
-    #         import traceback
-    #         traceback.print_exc()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save file: {str(e)}")
+            print(f"Detailed error: {e}")
+            import traceback
+            traceback.print_exc()
 
 
     def save_events_csv(self, csv_filename, messages, timestamps):
@@ -983,76 +1064,39 @@ class LiveWhisperLoggerApp:
             print(f"Error saving CSV: {e}")
 
 
-    # def log_message(self):
-    #     """Handle log button click"""
-    #     message = self.text_entry.get().strip()
+    def log_message(self):
+        """Handle log button click"""
+        message = self.text_entry.get().strip()
 
-    #     if not message:
-    #         messagebox.showwarning("Warning", "Please enter a message to log.")
-    #         return
+        if not message:
+            messagebox.showwarning("Warning", "Please enter a message to log.")
+            return
 
-    #     # Use the timestamp when user first started typing
-    #     timestamp = self.get_main_text_timestamp().strftime("%Y-%m-%d %H:%M:%S")
-
-    #     # Send LSL message
-    #     self.send_lsl_message(message)
-
-    #     # Update display
-    #     self.update_log_display(message, timestamp)
-
-    #     # Clear text entry
-    #     self.text_entry.delete(0, tk.END)
-    #     self.text_entry.focus()
-
-    # def get_best_speech_timestamp(self) -> datetime:
-    #     """Get the timestamp when user first started typing in main field"""
-    #     if self.last_speech_start_timestamp:
-    #         ## consume th entry
-    #         timestamp = self.last_speech_start_timestamp
-    #         self.last_speech_start_timestamp = None  # Reset for next entry
-    #         return timestamp
-    #     return datetime.now()
-    
-
-    def get_best_speech_timestamp(self) -> Tuple[datetime, Any]:
-        """Get the timestamp when user first started typing in main field"""
-        if self.last_speech_start_timestamp:
-            ## consume th entry
-            timestamp_lsl_sec = self.last_speech_start_timestamp
-            timestamp_dt = self.last_speech_start_timestamp_dt
-            self.last_speech_start_timestamp = None  # Reset for next entry
-            self.last_speech_start_timestamp_dt = None  # Reset for next entry
-            return (timestamp_dt, timestamp_lsl_sec)
-        return (datetime.now(), pylsl.local_clock())
-    
-
-    def perform_log_message(self, message: str):
         # Use the timestamp when user first started typing
-        timestamp_dt, timestamp_lsl_sec = self.get_best_speech_timestamp()
-        formatted_timestamp_str: str = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
-        
-        
+        timestamp = self.get_main_text_timestamp().strftime("%Y-%m-%d %H:%M:%S")
+
         # Send LSL message
-        self.send_lsl_message(message, timestamp_lsl_sec)
+        self.send_lsl_message(message)
 
         # Update display
-        self.update_log_display(message, formatted_timestamp_str)
-        
+        self.update_log_display(message, timestamp)
 
-    def send_lsl_message(self, message: str, timestamp_lsl_sec: Optional[Any]=0):
+        # Clear text entry
+        self.text_entry.delete(0, tk.END)
+        self.text_entry.focus()
+
+    def send_lsl_message(self, message):
         """Send message via LSL"""
         if self.outlet:
             try:
                 # Send message with timestamp
-                # self.outlet.push_sample([message])
-                self.outlet.push_sample([message], timestamp=timestamp_lsl_sec)
-                # print(f"{timestamp_lsl_sec}: LSL message sent: {message}")
+                self.outlet.push_sample([message])
+                print(f"LSL message sent: {message}")
             except Exception as e:
-                print(f"Error sending LSL message: {e} with timestamp_lsl_sec: {timestamp_lsl_sec}")
+                print(f"Error sending LSL message: {e}")
                 messagebox.showerror("LSL Error", f"Failed to send LSL message: {str(e)}")
         else:
             print("LSL outlet not available")
-
 
     def update_log_display(self, message, timestamp=None):
         """Update the log display area"""
@@ -1066,85 +1110,97 @@ class LiveWhisperLoggerApp:
 
         try:
             log_entry = f"[{timestamp}] {message}\n"
-            print(f'{log_entry}')
-            # self.log_display.insert(tk.END, log_entry)
-            # self.log_display.see(tk.END)  # Auto-scroll to bottom
+            self.log_display.insert(tk.END, log_entry)
+            self.log_display.see(tk.END)  # Auto-scroll to bottom
         except tk.TclError:
             # GUI is being destroyed, ignore the error
             pass
 
-    # def clear_log_display(self):
-    #     """Clear the log display area"""
-    #     self.log_display.delete(1.0, tk.END)
+    def clear_log_display(self):
+        """Clear the log display area"""
+        self.log_display.delete(1.0, tk.END)
 
     def on_closing(self):
         """Handle window closing"""
         # Set shutdown flag to prevent GUI updates
         self._shutting_down = True
 
-        # # Stop recording if active
-        # if self.recording:
-        #     self.stop_recording()
+        # Stop recording if active
+        if self.recording:
+            self.stop_recording()
 
-        # # Clean up hotkey
-        # try:
-        #     keyboard.remove_hotkey('ctrl+alt+l')
-        # except:
-        #     pass
+        # Clean up hotkey
+        try:
+            keyboard.remove_hotkey('ctrl+alt+l')
+        except:
+            pass
 
-        # # Clean up system tray
-        # if self.system_tray:
-        #     self.system_tray.stop()
+        # Clean up system tray
+        if self.system_tray:
+            self.system_tray.stop()
 
         # Clean up LSL resources
         if hasattr(self, 'outlet') and self.outlet:
             del self.outlet
         if hasattr(self, 'inlet') and self.inlet:
             del self.inlet
-
-        ## shutdown the recorder:
-        self.recorder.shutdown()
+        if hasattr(self, 'eventboard_outlet') and self.eventboard_outlet:
+            del self.eventboard_outlet
 
         # Release singleton lock
         self.release_singleton_lock()
 
+        self.root.destroy()
 
 
 
 
+def start_callback():
+    print("Recording started!")
 
+def stop_callback():
+    print("Recording stopped!")
+
+
+def wakeword_detected_callback():
+    print("Wakeword Detected!")
+        
+def wakeword_timeout_callback():
+    print("\t...wakeword timeout")
+
+def process_text(text):
+    print(text)
+    # pyautogui.typewrite(text + " ")
 
 
 def main():
-    # Check if another instance is already running
-    if LiveWhisperLoggerApp.is_instance_running():
-        messagebox.showerror("Instance Already Running", 
-                            "Another instance of LSL Live Whisiper Logger is already running.\n"
-                            "Only one instance can run at a time.")
-        sys.exit(1)
+	# Check if another instance is already running
+	if LiveWhisperLoggerApp.is_instance_running():
+		messagebox.showerror("Instance Already Running", 
+							"Another instance of LSL Logger is already running.\n"
+							"Only one instance can run at a time.")
+		sys.exit(1)
 
-    root = tk.Tk()
-    app = LiveWhisperLoggerApp(root)
-    # Try to acquire the singleton lock
-    if not app.acquire_singleton_lock():
-        messagebox.showerror("Startup Error", 
-                            "Failed to acquire singleton lock.\n"
-                            "Another instance may be running.")
-        root.destroy()
-        sys.exit(1)
+	root = tk.Tk()
+	app = LiveWhisperLoggerApp(root)
 
-    # # Handle window closing - minimize to tray instead of closing
-    # def on_closing():
-    #     app.minimize_to_tray()
-    # root.protocol("WM_DELETE_WINDOW", on_closing)
+	# Try to acquire the singleton lock
+	if not app.acquire_singleton_lock():
+		messagebox.showerror("Startup Error", 
+							"Failed to acquire singleton lock.\n"
+							"Another instance may be running.")
+		root.destroy()
+		sys.exit(1)
 
-    app.live_recognition_loop()
+	# # Handle window closing - minimize to tray instead of closing
+	# def on_closing():
+	#     app.minimize_to_tray()
+	# root.protocol("WM_DELETE_WINDOW", on_closing)
 
-    # Start the GUI
-    root.mainloop()
-    
+	# Start the GUI
+	root.mainloop()
 
 if __name__ == "__main__":
-    main()
+	main()
 
 
