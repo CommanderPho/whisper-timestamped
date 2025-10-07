@@ -175,7 +175,7 @@ def write_results(result, output_dir: Path, base_name: str, output_formats = ['j
     return output_files
 
 
-def process_recordings(recordings_dir: Path, output_dir=None, video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.m4v']):
+def process_recordings(recordings_dir: Path, output_dir=None, video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.m4v'], model_path_root: Path = Path(r'F:\AITEMP\whisper_models')):
     # Define the recordings directory
     if isinstance(recordings_dir, str):
         recordings_dir = Path(recordings_dir).resolve()
@@ -191,13 +191,13 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
     print(f'\t transcriptions will output to output_dir: "{output_dir.as_posix()}"')
     
     # Load the model once
-    print("Loading Whisper model...")
-    model_path_root = Path(r'F:\AITEMP\whisper_models').resolve()
+    print(f"Loading Whisper model at model_path_root: '{model_path_root.as_posix()}'...")
+    model_path_root = model_path_root.resolve()
     assert model_path_root.exists()
     model_name: str = "medium.en"
     # model_name: str = "large-v3"
     # model = whisper.load_model("medium.en")
-    model = whisper.load_model(model_name, download_root=r'F:\AITEMP\whisper_models') # , backend='transformers', device='cuda'
+    model = whisper.load_model(model_name, download_root=model_path_root) # , backend='transformers', device='cuda'
     # model = whisper.load_model("medium.en", backend='transformers') # , download_root=model_path_root.as_posix()
     
     # Get all video files in the recordings directory
@@ -247,10 +247,8 @@ def process_recordings(recordings_dir: Path, output_dir=None, video_extensions =
                 # Load audio from video file
                 audio = whisper.load_audio(str(video_file))
                 
-                
                 # audio_speech, segments, convert_timestamps = remove_non_speech(audio, vad="silero")
                 
-
                 # Transcribe with timestamps
                 result = whisper.transcribe(
                     model, 
