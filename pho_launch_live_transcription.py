@@ -21,12 +21,26 @@ import pyautogui
 import socket
 import sys
 
+from phopylslhelper.general_helpers import unwrap_single_element_listlike_if_needed, readable_dt_str, from_readable_dt_str, localize_datetime_to_timezone, tz_UTC, tz_Eastern, _default_tz
+from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin
+
+# Import the live transcription components
+from whisper_timestamped.live import LiveTranscriber, LiveConfig
+try:
+    import sounddevice as sd
+    AUDIO_AVAILABLE = True
+except ImportError:
+    AUDIO_AVAILABLE = False
+    sd = None
+
 
 _default_xdf_folder = Path(r'E:\Dropbox (Personal)\Databases\UnparsedData\PhoLogToLabStreamingLayer_logs').resolve()
 # _default_xdf_folder = Path('/media/halechr/MAX/cloud/University of Michigan Dropbox/Pho Hale/Personal/LabRecordedTextLog').resolve() ## Lab computer
 
-
-class LiveWhisperLoggerApp:
+####################################################################
+## The desired object-oriented class-based manager for the live app
+# TODO: not fully implemented, copied from another similar app but haven't made it work yet.
+class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
     # Class variable to track if an instance is already running
     _instance_running = False
     _lock_port = 12346  # Port to use for singleton check
@@ -58,7 +72,7 @@ class LiveWhisperLoggerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("LSL Live Audio Transcript Logger with XDF Recording")
-        self.root.geometry("600x500")
+        self.root.geometry("800x700")
 
         # Set application icon
         self.setup_app_icon()
@@ -69,6 +83,13 @@ class LiveWhisperLoggerApp:
         self.inlet = None
         self.recorded_data = []
         self.recording_start_time = None
+
+        self.init_EasyTimeSyncParsingMixin()
+
+        # Live transcription state
+        self.live_transcriber = None
+        self.transcription_active = False
+        self.transcription_config = None
 
         # System tray and hotkey state
         self.system_tray = None
@@ -92,8 +113,17 @@ class LiveWhisperLoggerApp:
         self.eventboard_toggle_states = {}  # Track toggle states
         self.eventboard_time_offsets = {}   # Track time offset dropdowns
 
+
+        ## capture start timestamps:
+        self.capture_stream_start_timestamps() ## `EasyTimeSyncParsingMixin`: capture timestamps for use in LSL streams
+        self.capture_recording_start_timestamps() ## capture timestamps for use in LSL streams
+
+
         # Create GUI elements first
         self.setup_gui()
+
+        # Setup transcription configuration
+        self.setup_transcription_config()
 
         # Check for recovery files
         self.check_for_recovery()
@@ -213,7 +243,7 @@ class LiveWhisperLoggerApp:
         """Setup inlet to record our own stream"""
         try:
             # Look for our own stream
-            streams = pylsl.resolve_byprop('name', 'TextLogger', timeout=2.0)
+            streams = pylsl.resolve_byprop('name', 'WhisperLiveLogger', timeout=2.0)
             if streams:
                 self.inlet = pylsl.StreamInlet(streams[0])
                 print("Recording inlet created successfully")
@@ -222,7 +252,7 @@ class LiveWhisperLoggerApp:
                 self.root.after(500, self.auto_start_recording)
 
             else:
-                print("Could not find TextLogger stream for recording")
+                print("Could not find WhisperLiveLogger stream for recording")
                 self.inlet = None
         except Exception as e:
             print(f"Error creating recording inlet: {e}")
@@ -270,6 +300,249 @@ class LiveWhisperLoggerApp:
                 pass  # GUI is being destroyed
             self.outlet = None
 
+    # ---------------------------------------------------------------------------- #
+    #                           Live Transcription Methods                         #
+    # ---------------------------------------------------------------------------- #
+
+    def setup_transcription_config(self):
+        """Setup default transcription configuration"""
+        self.transcription_config = LiveConfig(
+            model="medium",  # Good balance of speed and accuracy
+            device=None,  # Auto-detect
+            compute_type=None,  # Auto-detect
+            language=None,  # Auto-detect
+            beam_size=1,
+            vad_filter=True,
+            chunk_length_s=15.0,
+            step_s=2.0,
+            sample_rate=16000,
+            channels=1,
+            dtype="float32",
+            output_dir=_default_xdf_folder / "live_transcripts",
+            session_name=None,
+            write_audio_wav=True,
+            lsl=False,  # We'll handle LSL ourselves
+            mic_device=None,
+            word_timestamps=True,
+            no_speech_threshold=0.6,
+            logprob_threshold=-1.0,
+            temperature=0.0
+        )
+
+    def get_audio_devices(self):
+        """Get list of available audio input devices"""
+        if not AUDIO_AVAILABLE:
+            return []
+
+        try:
+            devices = sd.query_devices()
+            input_devices = []
+            for i, device in enumerate(devices):
+                if device['max_input_channels'] > 0:
+                    input_devices.append((i, device['name']))
+            return input_devices
+        except Exception as e:
+            print(f"Error getting audio devices: {e}")
+            return []
+
+
+    def start_live_transcription(self):
+        """Start live audio transcription"""
+        if not AUDIO_AVAILABLE:
+            messagebox.showerror("Error", "Audio libraries not available. Please install sounddevice and soundfile.")
+            return
+
+        if self.transcription_active:
+            return
+
+        try:
+            # Setup configuration if not already done
+            if not self.transcription_config:
+                self.setup_transcription_config()
+
+            # Set session name with timestamp
+            session_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.transcription_config.session_name = session_name
+
+            # Set selected audio device
+            selected_device = self.audio_device_var.get()
+            if selected_device != "Default":
+                # Extract device index from the selection
+                device_index = int(selected_device.split(":")[0])
+                self.transcription_config.mic_device = device_index
+
+            # Create transcriber instance
+            self.live_transcriber = LiveTranscriber(self.transcription_config)
+
+            # Override the _emit method to send to our LSL stream
+            original_emit = self.live_transcriber._emit
+            def custom_emit(segments):
+                # Send to our LSL outlet
+                for seg in segments:
+                    text = seg.get("text", "").strip()
+                    if text:
+                        self.send_lsl_message(text)
+                        # Update GUI display
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        self.update_log_display(f"[TRANSCRIBED] {text}", timestamp)
+
+                # Also call original emit for file logging
+                original_emit(segments)
+
+            self.live_transcriber._emit = custom_emit
+
+            # Start transcription
+            self.live_transcriber.start()
+            self.transcription_active = True
+
+            # Update GUI
+            try:
+                if not self._shutting_down:
+                    self.transcription_status_label.config(text="Transcribing...", foreground="green")
+                    self.start_transcription_button.config(state="disabled")
+                    self.stop_transcription_button.config(state="normal")
+                    self.transcription_settings_button.config(state="disabled")
+            except tk.TclError:
+                pass
+
+            self.update_log_display("Live transcription started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            print(f"Live transcription started with session: {session_name}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start live transcription: {str(e)}")
+            print(f"Error starting transcription: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def stop_live_transcription(self):
+        """Stop live audio transcription"""
+        if not self.transcription_active:
+            return
+
+        try:
+            if self.live_transcriber:
+                self.live_transcriber.stop()
+                self.live_transcriber = None
+
+            self.transcription_active = False
+
+            # Update GUI
+            try:
+                if not self._shutting_down:
+                    self.transcription_status_label.config(text="Not Transcribing", foreground="red")
+                    self.start_transcription_button.config(state="normal")
+                    self.stop_transcription_button.config(state="disabled")
+                    self.transcription_settings_button.config(state="normal")
+            except tk.TclError:
+                pass
+
+            self.update_log_display("Live transcription stopped", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            print("Live transcription stopped")
+
+        except Exception as e:
+            print(f"Error stopping transcription: {e}")
+
+
+    def show_transcription_settings(self):
+        """Show transcription settings dialog"""
+        if not self.transcription_config:
+            self.setup_transcription_config()
+
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("Transcription Settings")
+        settings_window.geometry("400x500")
+        settings_window.transient(self.root)
+        settings_window.grab_set()
+
+        # Center the window
+        settings_window.update_idletasks()
+        x = (settings_window.winfo_screenwidth() // 2) - (400 // 2)
+        y = (settings_window.winfo_screenheight() // 2) - (500 // 2)
+        settings_window.geometry(f"+{x}+{y}")
+
+        main_frame = ttk.Frame(settings_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Model selection
+        ttk.Label(main_frame, text="Whisper Model:").pack(anchor=tk.W, pady=(0, 5))
+        model_var = tk.StringVar(value=self.transcription_config.model)
+        model_combo = ttk.Combobox(main_frame, textvariable=model_var,
+                                  values=["tiny", "base", "small", "medium", "large-v3"],
+                                  state="readonly")
+        model_combo.pack(fill=tk.X, pady=(0, 10))
+
+        # Language selection
+        ttk.Label(main_frame, text="Language (leave empty for auto-detect):").pack(anchor=tk.W, pady=(0, 5))
+        language_var = tk.StringVar(value=self.transcription_config.language or "")
+        language_entry = ttk.Entry(main_frame, textvariable=language_var)
+        language_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # Device selection
+        ttk.Label(main_frame, text="Processing Device:").pack(anchor=tk.W, pady=(0, 5))
+        device_var = tk.StringVar(value=self.transcription_config.device or "auto")
+        device_combo = ttk.Combobox(main_frame, textvariable=device_var,
+                                   values=["auto", "cpu", "cuda"], state="readonly")
+        device_combo.pack(fill=tk.X, pady=(0, 10))
+
+        # VAD filter
+        vad_var = tk.BooleanVar(value=self.transcription_config.vad_filter)
+        ttk.Checkbutton(main_frame, text="Enable Voice Activity Detection (VAD)",
+                       variable=vad_var).pack(anchor=tk.W, pady=(0, 10))
+
+        # Chunk length
+        ttk.Label(main_frame, text="Chunk Length (seconds):").pack(anchor=tk.W, pady=(0, 5))
+        chunk_var = tk.DoubleVar(value=self.transcription_config.chunk_length_s)
+        chunk_spin = ttk.Spinbox(main_frame, from_=5.0, to=30.0, increment=1.0,
+                                textvariable=chunk_var, format="%.1f")
+        chunk_spin.pack(fill=tk.X, pady=(0, 10))
+
+        # Step size
+        ttk.Label(main_frame, text="Step Size (seconds):").pack(anchor=tk.W, pady=(0, 5))
+        step_var = tk.DoubleVar(value=self.transcription_config.step_s)
+        step_spin = ttk.Spinbox(main_frame, from_=0.5, to=10.0, increment=0.5,
+                               textvariable=step_var, format="%.1f")
+        step_spin.pack(fill=tk.X, pady=(0, 10))
+
+        # Save audio
+        save_audio_var = tk.BooleanVar(value=self.transcription_config.write_audio_wav)
+        ttk.Checkbutton(main_frame, text="Save audio to WAV file",
+                       variable=save_audio_var).pack(anchor=tk.W, pady=(0, 10))
+
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(20, 0))
+
+        def save_settings():
+            self.transcription_config.model = model_var.get()
+            self.transcription_config.language = language_var.get() or None
+            self.transcription_config.device = device_var.get() if device_var.get() != "auto" else None
+            self.transcription_config.vad_filter = vad_var.get()
+            self.transcription_config.chunk_length_s = chunk_var.get()
+            self.transcription_config.step_s = step_var.get()
+            self.transcription_config.write_audio_wav = save_audio_var.get()
+            settings_window.destroy()
+
+        ttk.Button(button_frame, text="Save", command=save_settings).pack(side=tk.RIGHT, padx=(5, 0))
+        ttk.Button(button_frame, text="Cancel", command=settings_window.destroy).pack(side=tk.RIGHT)
+
+    def refresh_audio_devices(self):
+        """Refresh the list of available audio devices"""
+        devices = self.get_audio_devices()
+        device_list = ["Default"]
+
+        for device_id, device_name in devices:
+            device_list.append(f"{device_id}: {device_name}")
+
+        self.audio_device_combo['values'] = device_list
+
+        # Set to default if current selection is not in the list
+        if self.audio_device_var.get() not in device_list:
+            self.audio_device_var.set("Default")
+
+
+    # ==================================================================================================================================================================================================================================================================================== #
+    # Shared/Common Stuff                                                                                                                                                                                                                                                                  #
+    # ==================================================================================================================================================================================================================================================================================== #
 
     def setup_system_tray(self):
         """Setup system tray icon and menu"""
@@ -280,7 +553,6 @@ class LiveWhisperLoggerApp:
             # Create system tray menu
             menu = pystray.Menu(
                 pystray.MenuItem("Show App", self.show_app),
-                pystray.MenuItem("Quick Log", self.show_hotkey_popover),
                 pystray.MenuItem("Exit", self.quit_app)
             )
 
@@ -293,7 +565,7 @@ class LiveWhisperLoggerApp:
             )
 
             # Add double-click handler to show app
-            self.system_tray.on_activate = self.show_app ## double-clicking doesn't foreground the app by default. Also clicking the windows close "X" just hides it to taskbar by default which I don't want. 
+            self.system_tray.on_activate = self.show_app ## double-clicking doesn't foreground the app by default. Also clicking the windows close "X" just hides it to taskbar by default which I don't want.
 
             # Start system tray in a separate thread
             threading.Thread(target=self.system_tray.run, daemon=True).start()
@@ -399,7 +671,7 @@ class LiveWhisperLoggerApp:
     #     self.quick_log_entry.bind('<Delete>', self.on_popover_text_clear)
 
     #     # Instructions label
-    #     instructions_label = ttk.Label(content_frame, text="Press Enter to log, Esc to cancel", 
+    #     instructions_label = ttk.Label(content_frame, text="Press Enter to log, Esc to cancel",
     #                                  font=("Arial", 9), foreground="gray")
     #     instructions_label.pack(pady=(5, 0))
 
@@ -592,12 +864,48 @@ class LiveWhisperLoggerApp:
         self.minimize_button = ttk.Button(recording_frame, text="Minimize to Tray", command=self.toggle_minimize)
         self.minimize_button.grid(row=0, column=4, padx=5)
 
+        # Live Transcription control frame
+        transcription_frame = ttk.LabelFrame(main_frame, text="Live Audio Transcription", padding="5")
+        transcription_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        transcription_frame.columnconfigure(2, weight=1)
+
+        # Transcription status
+        self.transcription_status_label = ttk.Label(transcription_frame, text="Not Transcribing", foreground="red")
+        self.transcription_status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+
+        # Transcription buttons
+        self.start_transcription_button = ttk.Button(transcription_frame, text="Start Transcription",
+                                                   command=self.start_live_transcription)
+        self.start_transcription_button.grid(row=0, column=1, padx=5)
+
+        self.stop_transcription_button = ttk.Button(transcription_frame, text="Stop Transcription",
+                                                  command=self.stop_live_transcription, state="disabled")
+        self.stop_transcription_button.grid(row=0, column=2, padx=5)
+
+        self.transcription_settings_button = ttk.Button(transcription_frame, text="Settings",
+                                                       command=self.show_transcription_settings)
+        self.transcription_settings_button.grid(row=0, column=3, padx=5)
+
+        # Audio device selection
+        ttk.Label(transcription_frame, text="Audio Device:").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=(5, 0))
+
+        self.audio_device_var = tk.StringVar(value="Default")
+        self.audio_device_combo = ttk.Combobox(transcription_frame, textvariable=self.audio_device_var,
+                                             state="readonly", width=30)
+        self.audio_device_combo.grid(row=1, column=1, columnspan=2, sticky=(tk.W, tk.E), padx=5, pady=(5, 0))
+
+        # Populate audio devices
+        self.refresh_audio_devices()
+
+        # Refresh devices button
+        ttk.Button(transcription_frame, text="Refresh", command=self.refresh_audio_devices).grid(row=1, column=3, padx=5, pady=(5, 0))
+
         # EventBoard frame
         self.setup_eventboard_gui(main_frame)
 
         # Text input label and entry frame
         input_frame = ttk.Frame(main_frame)
-        input_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        input_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
         input_frame.columnconfigure(1, weight=1)
 
         ttk.Label(input_frame, text="Message:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
@@ -615,15 +923,15 @@ class LiveWhisperLoggerApp:
         self.log_button.grid(row=0, column=2)
 
         # Log display area
-        ttk.Label(main_frame, text="Log History:").grid(row=4, column=0, sticky=(tk.W, tk.N), pady=(10, 5))
+        ttk.Label(main_frame, text="Log History:").grid(row=5, column=0, sticky=(tk.W, tk.N), pady=(10, 5))
 
         # Scrolled text widget for log history
         self.log_display = scrolledtext.ScrolledText(main_frame, height=15, width=70)
-        self.log_display.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        self.log_display.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
         # Bottom frame for buttons and info
         bottom_frame = ttk.Frame(main_frame)
-        bottom_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        bottom_frame.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E))
         bottom_frame.columnconfigure(1, weight=1)
 
         # Clear log button
@@ -636,9 +944,70 @@ class LiveWhisperLoggerApp:
         # Focus on text entry
         self.text_entry.focus()
 
+    def setup_eventboard_gui(self, main_frame):
+        """Setup EventBoard GUI (placeholder for now)"""
+        # EventBoard frame - placeholder for future implementation
+        eventboard_frame = ttk.LabelFrame(main_frame, text="EventBoard (Future Feature)", padding="5")
+        eventboard_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+
+        ttk.Label(eventboard_frame, text="EventBoard functionality will be implemented here",
+                 foreground="gray").pack(pady=10)
+
     # ---------------------------------------------------------------------------- #
     #                               Recording Methods                              #
     # ---------------------------------------------------------------------------- #
+    def _common_capture_recording_start_timestamps(self):
+        """Common code for capturing recording start timestamps"""
+        # self.recording_start_datetime = datetime.now()
+        # self.recording_start_datetime = datetime.now(datetime.timezone.utc)
+        # self.recording_start_lsl_local_offset = pylsl.local_clock()
+        self.capture_recording_start_timestamps()
+        return (self.recording_start_datetime, self.recording_start_lsl_local_offset)
+
+
+    def _common_initiate_recording(self, allow_prompt_user_for_filename: bool = True):
+        """Common code for initiating recording
+        called by `self.start_recording()` and `self.auto_start_recording()`, and also by `self.split_recording()`
+
+        Usage:
+
+            new_filename, (new_recording_start_datetime, new_recording_start_lsl_local_offset) = self._common_initiate_recording(allow_prompt_user_for_filename=True)
+
+        """
+        ## Capture recording timestamps:
+        self._common_capture_recording_start_timestamps()
+
+        # Create default filename with timestamp
+        current_timestamp = self.recording_start_datetime.strftime("%Y%m%d_%H%M%S")
+        default_filename = f"{current_timestamp}_log.xdf"
+
+        # Ensure the default directory exists
+        self.xdf_folder = self.user_select_xdf_folder_if_needed()
+        self.xdf_folder.mkdir(parents=True, exist_ok=True)
+        assert self.xdf_folder.exists(), f"XDF folder does not exist: {self.xdf_folder}"
+        assert self.xdf_folder.is_dir(), f"XDF folder is not a directory: {self.xdf_folder}"
+
+        # Set new filename directly
+        if allow_prompt_user_for_filename:
+            filename = filedialog.asksaveasfilename(initialdir=str(self.xdf_folder), initialfile=default_filename, defaultextension=".xdf", filetypes=[("XDF files", "*.xdf"), ("All files", "*.*")], title="Save XDF Recording As")
+        else:
+            filename = str(self.xdf_folder / default_filename)
+
+        if not filename:
+            return
+
+        self.recording = True
+        self.recorded_data = [] ## clear recorded data
+
+        self.xdf_filename = filename
+
+        # Create backup file for crash recovery
+        self.backup_filename = str(Path(filename).with_suffix('.backup.json'))
+        return self.xdf_filename, (self.recording_start_datetime, self.recording_start_lsl_local_offset)
+
+
+
+
     def start_recording(self):
         """Start XDF recording"""
         if not self.inlet:
@@ -646,30 +1015,11 @@ class LiveWhisperLoggerApp:
             return
 
         # Create default filename with timestamp
-        current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_filename = f"{current_timestamp}_log.xdf"
+        new_filename, (new_recording_start_datetime, new_recording_start_lsl_local_offset) = self._common_initiate_recording(allow_prompt_user_for_filename=True)
 
-        # Ensure the default directory exists
-        _default_xdf_folder.mkdir(parents=True, exist_ok=True)
-
-        filename = filedialog.asksaveasfilename(
-            initialdir=str(_default_xdf_folder),
-            initialfile=default_filename,
-            defaultextension=".xdf",
-            filetypes=[("XDF files", "*.xdf"), ("All files", "*.*")],
-            title="Save XDF Recording As"
-        )
-
-        if not filename:
+        if not new_filename:
             return
 
-        self.recording = True
-        self.recorded_data = []
-        self.recording_start_time = pylsl.local_clock()
-        self.xdf_filename = filename
-
-        # Create backup file for crash recovery
-        self.backup_filename = str(Path(filename).with_suffix('.backup.json'))
 
         # Update GUI
         try:
@@ -678,7 +1028,7 @@ class LiveWhisperLoggerApp:
                 self.start_recording_button.config(state="disabled")
                 self.stop_recording_button.config(state="normal")
                 self.split_recording_button.config(state="normal")  # Enable split button
-                self.status_info_label.config(text=f"Recording to: {os.path.basename(filename)}")
+                self.status_info_label.config(text=f"Recording to: {os.path.basename(new_filename)}")
         except tk.TclError:
             pass  # GUI is being destroyed
 
@@ -688,6 +1038,7 @@ class LiveWhisperLoggerApp:
 
         self.update_log_display("XDF Recording started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
+
     def auto_start_recording(self):
         """Automatically start recording on app launch if inlet is available"""
         if not self.inlet:
@@ -696,21 +1047,7 @@ class LiveWhisperLoggerApp:
 
         try:
             # Create default filename with timestamp
-            current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            default_filename = f"{current_timestamp}_log.xdf"
-
-            # Ensure the default directory exists
-            _default_xdf_folder.mkdir(parents=True, exist_ok=True)
-
-            # Set filename directly without dialog
-            self.xdf_filename = str(_default_xdf_folder / default_filename)
-
-            self.recording = True
-            self.recorded_data = []
-            self.recording_start_time = pylsl.local_clock()
-
-            # Create backup file for crash recovery
-            self.backup_filename = str(Path(self.xdf_filename).with_suffix('.backup.json'))
+            new_filename, (new_recording_start_datetime, new_recording_start_lsl_local_offset) = self._common_initiate_recording(allow_prompt_user_for_filename=True)
 
             # Update GUI
             try:
@@ -829,21 +1166,8 @@ class LiveWhisperLoggerApp:
 
         try:
             # Create new filename with timestamp
-            current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            new_filename = f"{current_timestamp}_log.xdf"
-
-            # Ensure the default directory exists
-            _default_xdf_folder.mkdir(parents=True, exist_ok=True)
-
             # Set new filename directly
-            self.xdf_filename = str(_default_xdf_folder / new_filename)
-
-            self.recording = True
-            self.recorded_data = []
-            self.recording_start_time = pylsl.local_clock()
-
-            # Create backup file for crash recovery
-            self.backup_filename = str(Path(self.xdf_filename).with_suffix('.backup.json'))
+            new_filename, (new_recording_start_datetime, new_recording_start_lsl_local_offset) = self._common_initiate_recording(allow_prompt_user_for_filename=False)
 
             # Update GUI
             try:
@@ -899,7 +1223,7 @@ class LiveWhisperLoggerApp:
 
         if backup_files:
             response = messagebox.askyesno(
-                "Recovery Available", 
+                "Recovery Available",
                 f"Found {len(backup_files)} backup file(s) from previous sessions. "
                 "Would you like to recover them?"
             )
@@ -935,7 +1259,7 @@ class LiveWhisperLoggerApp:
                 # Remove backup file
                 os.remove(backup_file)
 
-                messagebox.showinfo("Recovery Complete", 
+                messagebox.showinfo("Recovery Complete",
                     f"Recovered {len(self.recorded_data)} samples to {recovery_filename}")
 
         except Exception as e:
@@ -1126,6 +1450,10 @@ class LiveWhisperLoggerApp:
         # Set shutdown flag to prevent GUI updates
         self._shutting_down = True
 
+        # Stop transcription if active
+        if self.transcription_active:
+            self.stop_live_transcription()
+
         # Stop recording if active
         if self.recording:
             self.stop_recording()
@@ -1154,8 +1482,8 @@ class LiveWhisperLoggerApp:
         self.root.destroy()
 
 
-
-
+#############################################
+## The main (completely working) Code
 def start_callback():
     print("Recording started!")
 
@@ -1165,7 +1493,7 @@ def stop_callback():
 
 def wakeword_detected_callback():
     print("Wakeword Detected!")
-        
+
 def wakeword_timeout_callback():
     print("\t...wakeword timeout")
 
@@ -1177,7 +1505,7 @@ def process_text(text):
 def main():
 	# Check if another instance is already running
 	if LiveWhisperLoggerApp.is_instance_running():
-		messagebox.showerror("Instance Already Running", 
+		messagebox.showerror("Instance Already Running",
 							"Another instance of LSL Logger is already running.\n"
 							"Only one instance can run at a time.")
 		sys.exit(1)
@@ -1187,7 +1515,7 @@ def main():
 
 	# Try to acquire the singleton lock
 	if not app.acquire_singleton_lock():
-		messagebox.showerror("Startup Error", 
+		messagebox.showerror("Startup Error",
 							"Failed to acquire singleton lock.\n"
 							"Another instance may be running.")
 		root.destroy()

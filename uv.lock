@@ -1070,6 +1070,21 @@ wheels = [
 ]
 
 [[package]]
+name = "phopylslhelper"
+version = "0.1.2"
+source = { editable = "C:/Users/pho/repos/EmotivEpoc/LSL_REPOS/LSL/PhoPyLSLhelper" }
+dependencies = [
+    { name = "pylsl" },
+    { name = "pytz" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pylsl", specifier = ">=1.16.2" },
+    { name = "pytz", specifier = ">=2025.2" },
+]
+
+[[package]]
 name = "pillow"
 version = "11.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4373,6 +4388,7 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "openai-whisper" },
     { name = "pandas" },
+    { name = "phopylslhelper" },
     { name = "pyautogui" },
     { name = "pyinstaller" },
     { name = "pylsl" },
@@ -4446,6 +4462,7 @@ requires-dist = [
     { name = "onnxruntime", marker = "extra == 'vad-silero'", specifier = ">=1.22.1" },
     { name = "openai-whisper", git = "https://github.com/openai/whisper.git" },
     { name = "pandas", specifier = ">=2.3.1" },
+    { name = "phopylslhelper", editable = "C:/Users/pho/repos/EmotivEpoc/LSL_REPOS/LSL/PhoPyLSLhelper" },
     { name = "pyautogui", specifier = ">=0.9.54" },
     { name = "pyinstaller", specifier = ">=6.15.0" },
     { name = "pylsl", specifier = ">=1.17.6" },

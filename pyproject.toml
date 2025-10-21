@@ -23,6 +23,7 @@ dependencies = [
     "onnxruntime>=1.22.1",
     "openai-whisper",
     "pandas>=2.3.1",
+    "phopylslhelper",
     "pyautogui>=0.9.54",
     "pyinstaller>=6.15.0",
     "pylsl>=1.17.6",
@@ -95,3 +96,4 @@ package = true
 
 [tool.uv.sources]
 openai-whisper = { git = "https://github.com/openai/whisper.git" }
+phopylslhelper = { path = "C:/Users/pho/repos/EmotivEpoc/LSL_REPOS/LSL/PhoPyLSLhelper", editable = true }

@@ -817,4 +817,6 @@ whisper_timestamped "M:\ScreenRecordings\EyeTrackerVR_Recordings\Debut_2025-07-1
 recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve()
 
 
+C:\Users\pho\repos\EmotivEpoc\PhoOfflineEEGAnalysis
+
 ```
