@@ -1,6 +1,6 @@
 [project]
 name = "whisper-timestamped"
-version = "0.0.3"
+version = "0.1.0"
 description = "Multi-lingual Automatic Speech Recognition (ASR) based on Whisper models, with accurate word timestamps, access to language detection confidence, several options for Voice Activity Detection (VAD), and more."
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -16,6 +16,7 @@ dependencies = [
     "dtw-python",
     "huggingface-hub[hf-xet]>=0.33.4",
     "ipykernel>=6.30.0",
+    "keyboard>=0.13.5",
     "mne>=1.10.0",
     "mne-lsl>=1.10.1",
     "numpy>=2.2.6",
@@ -29,7 +30,7 @@ dependencies = [
     "pyxdf>=1.17.0",
     "realtimestt>=0.1.7",
     "scipy>=1.15.3",
-    "setuptools>=80.9.0",
+    "setuptools>=80.9.0,<81",
     "silero-vad>=6.0.0",
     "torch>=2.7.1",
     "torchaudio>=2.7.1",
