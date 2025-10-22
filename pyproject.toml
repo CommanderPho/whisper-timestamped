@@ -1,6 +1,6 @@
 [project]
 name = "whisper-timestamped"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multi-lingual Automatic Speech Recognition (ASR) based on Whisper models, with accurate word timestamps, access to language detection confidence, several options for Voice Activity Detection (VAD), and more."
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
@@ -14,13 +14,14 @@ dependencies = [
     "auditok>=0.3.0",
     "cython",
     "dtw-python",
+    "faster-whisper>=1.2.0",
     "huggingface-hub[hf-xet]>=0.33.4",
     "ipykernel>=6.30.0",
     "keyboard>=0.13.5",
     "mne>=1.10.0",
     "mne-lsl>=1.10.1",
     "numpy>=2.2.6",
-    "onnxruntime>=1.22.1",
+    "onnxruntime>=1.22.1,<1.23",
     "openai-whisper",
     "pandas>=2.3.1",
     "phopylslhelper",
@@ -54,7 +55,7 @@ watch = [
     "watchdog>=4.0.0",
 ]
 vad_silero = [
-    "onnxruntime>=1.22.1",
+    "onnxruntime>=1.22.1,<1.23",
     "torchaudio>=2.7.1",
 ]
 vad_auditok = [
@@ -66,7 +67,7 @@ test = [
 # Updated extras that match your current dependencies
 full = [
     "matplotlib>=3.10.3",
-    "onnxruntime>=1.22.1", 
+    "onnxruntime>=1.22.1,<1.23", 
     "torchaudio>=2.7.1",
     "transformers>=4.53.2",
     "faster-whisper>=1.0.0",
