@@ -34,8 +34,14 @@ except ImportError:
     sd = None
 
 
-_default_xdf_folder = Path(r'E:\Dropbox (Personal)\Databases\UnparsedData\PhoLogToLabStreamingLayer_logs').resolve()
+_default_xdf_folder = Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/PhoLogToLabStreamingLayer_logs').resolve()
 # _default_xdf_folder = Path('/media/halechr/MAX/cloud/University of Michigan Dropbox/Pho Hale/Personal/LabRecordedTextLog').resolve() ## Lab computer
+
+whisper_audio_out_dir: Path = Path("L:/ScreenRecordings/EyeTrackerVR_Recordings/audio").resolve()
+whisper_transcripts_dir: Path = Path("L:/ScreenRecordings/EyeTrackerVR_Recordings/transcriptions").resolve()
+whisper_lsl_converted_transcripts_dir: Path = whisper_transcripts_dir.joinpath('LSL_Converted').resolve()
+whisper_live_transcripts_dir: Path = Path("E:/Dropbox (Personal)/Databases/UnparsedData/PhoLogToLabStreamingLayer_logs/live_transcripts").resolve()
+
 
 ####################################################################
 ## The desired object-oriented class-based manager for the live app
@@ -88,6 +94,7 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
 
         # Live transcription state
         self.live_transcriber = None
+        self.whisper_live_transcript_path = None
         self.transcription_active = False
         self.transcription_config = None
 
@@ -118,6 +125,7 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
         self.capture_stream_start_timestamps() ## `EasyTimeSyncParsingMixin`: capture timestamps for use in LSL streams
         self.capture_recording_start_timestamps() ## capture timestamps for use in LSL streams
 
+        
 
         # Create GUI elements first
         self.setup_gui()
@@ -305,7 +313,11 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
     # ---------------------------------------------------------------------------- #
 
     def setup_transcription_config(self):
-        """Setup default transcription configuration"""
+        """Setup default transcription configuration
+
+        captures: whisper_live_transcripts_dir
+
+        """
         self.transcription_config = LiveConfig(
             model="medium",  # Good balance of speed and accuracy
             device=None,  # Auto-detect
@@ -318,7 +330,7 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
             sample_rate=16000,
             channels=1,
             dtype="float32",
-            output_dir=_default_xdf_folder / "live_transcripts",
+            output_dir=whisper_live_transcripts_dir,
             session_name=None,
             write_audio_wav=True,
             lsl=False,  # We'll handle LSL ourselves
@@ -328,6 +340,16 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
             logprob_threshold=-1.0,
             temperature=0.0
         )
+
+
+    @property
+    def whisper_live_transcripts_dir(self) -> Path:
+        """The whisper_live_transcripts_dir property."""
+        return self.transcription_config.output_dir
+    @whisper_live_transcripts_dir.setter
+    def whisper_live_transcripts_dir(self, value: Path):
+        self.transcription_config.output_dir = value
+
 
     def get_audio_devices(self):
         """Get list of available audio input devices"""
@@ -524,6 +546,7 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
 
         ttk.Button(button_frame, text="Save", command=save_settings).pack(side=tk.RIGHT, padx=(5, 0))
         ttk.Button(button_frame, text="Cancel", command=settings_window.destroy).pack(side=tk.RIGHT)
+
 
     def refresh_audio_devices(self):
         """Refresh the list of available audio devices"""
@@ -956,6 +979,23 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
     # ---------------------------------------------------------------------------- #
     #                               Recording Methods                              #
     # ---------------------------------------------------------------------------- #
+
+    def user_select_xdf_folder_if_needed(self) -> Path:
+        """Ensures the self.xdf_folder is valid, otherwise forces the user to select a valid one. returns the valid folder.
+        """
+        self.xdf_folder = whisper_live_transcripts_dir
+        if (self.xdf_folder is not None) and (self.xdf_folder.exists()) and (self.xdf_folder.is_dir()):
+            ## already had valid folder, just return it
+            return self.xdf_folder
+        else:        
+            self.xdf_folder = Path(filedialog.askdirectory(initialdir=str(self.xdf_folder), title="Select output XDF Folder - PhoLogToLabStreamingLayer_logs")).resolve()
+            assert self.xdf_folder.exists(), f"XDF folder does not exist: {self.xdf_folder}"
+            assert self.xdf_folder.is_dir(), f"XDF folder is not a directory: {self.xdf_folder}"
+            self.update_log_display(f"XDF folder selected: {self.xdf_folder}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            print(f"XDF folder selected: {self.xdf_folder}")
+            return self.xdf_folder
+
+
     def _common_capture_recording_start_timestamps(self):
         """Common code for capturing recording start timestamps"""
         # self.recording_start_datetime = datetime.now()
@@ -1068,7 +1108,7 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
             print(f"Auto-started recording to: {self.xdf_filename}")
 
             # Log the auto-start event both in GUI and via LSL
-            auto_start_message = f"RECORDING_AUTO_STARTED: {default_filename}"
+            auto_start_message = f"RECORDING_AUTO_STARTED: {new_filename}"
             self.send_lsl_message(auto_start_message)  # Send via LSL
             self.update_log_display("XDF Recording auto-started", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             print(f"Auto-started recording to: {self.xdf_filename}")
@@ -1503,33 +1543,33 @@ def process_text(text):
 
 
 def main():
-	# Check if another instance is already running
-	if LiveWhisperLoggerApp.is_instance_running():
-		messagebox.showerror("Instance Already Running",
-							"Another instance of LSL Logger is already running.\n"
-							"Only one instance can run at a time.")
-		sys.exit(1)
+    # Check if another instance is already running
+    if LiveWhisperLoggerApp.is_instance_running():
+        messagebox.showerror("Instance Already Running",
+                            "Another instance of LSL Logger is already running.\n"
+                            "Only one instance can run at a time.")
+        sys.exit(1)
 
-	root = tk.Tk()
-	app = LiveWhisperLoggerApp(root)
+    root = tk.Tk()
+    app = LiveWhisperLoggerApp(root)
 
-	# Try to acquire the singleton lock
-	if not app.acquire_singleton_lock():
-		messagebox.showerror("Startup Error",
-							"Failed to acquire singleton lock.\n"
-							"Another instance may be running.")
-		root.destroy()
-		sys.exit(1)
+    # Try to acquire the singleton lock
+    if not app.acquire_singleton_lock():
+        messagebox.showerror("Startup Error",
+                            "Failed to acquire singleton lock.\n"
+                            "Another instance may be running.")
+        root.destroy()
+        sys.exit(1)
 
-	# # Handle window closing - minimize to tray instead of closing
-	# def on_closing():
-	#     app.minimize_to_tray()
-	# root.protocol("WM_DELETE_WINDOW", on_closing)
+    # # Handle window closing - minimize to tray instead of closing
+    # def on_closing():
+    #     app.minimize_to_tray()
+    # root.protocol("WM_DELETE_WINDOW", on_closing)
 
-	# Start the GUI
-	root.mainloop()
+    # Start the GUI
+    root.mainloop()
 
 if __name__ == "__main__":
-	main()
+    main()
 
 
