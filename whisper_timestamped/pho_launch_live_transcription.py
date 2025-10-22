@@ -1,3 +1,4 @@
+from copy import deepcopy
 from RealtimeSTT import AudioToTextRecorder
 import pyautogui
 import pylsl
@@ -20,6 +21,7 @@ import keyboard
 import pyautogui
 import socket
 import sys
+import logging
 
 from phopylslhelper.general_helpers import unwrap_single_element_listlike_if_needed, readable_dt_str, from_readable_dt_str, localize_datetime_to_timezone, tz_UTC, tz_Eastern, _default_tz
 from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin
@@ -32,6 +34,9 @@ try:
 except ImportError:
     AUDIO_AVAILABLE = False
     sd = None
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 _default_xdf_folder = Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/PhoLogToLabStreamingLayer_logs').resolve()
@@ -76,6 +81,7 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
         cls._instance_running = False
 
     def __init__(self, root):
+        logger.info(f"__init__(root={root})  hit")
         self.root = root
         self.root.title("LSL Live Audio Transcript Logger with XDF Recording")
         self.root.geometry("800x700")
@@ -125,7 +131,7 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
         self.capture_stream_start_timestamps() ## `EasyTimeSyncParsingMixin`: capture timestamps for use in LSL streams
         self.capture_recording_start_timestamps() ## capture timestamps for use in LSL streams
 
-        
+        logger.info(f"\t set stream timestamps.")
 
         # Create GUI elements first
         self.setup_gui()
@@ -374,6 +380,8 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
             messagebox.showerror("Error", "Audio libraries not available. Please install sounddevice and soundfile.")
             return
 
+        logger.info(f".start_live_transcription()  hit")
+
         if self.transcription_active:
             return
 
@@ -395,11 +403,13 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
 
             # Create transcriber instance
             self.live_transcriber = LiveTranscriber(self.transcription_config)
+            logger.info(f"\t created live transcriber instance.")
 
             # Override the _emit method to send to our LSL stream
             original_emit = self.live_transcriber._emit
             def custom_emit(segments):
                 # Send to our LSL outlet
+                logger.info(f".custom_emit(segments={segments})  hit")
                 for seg in segments:
                     text = seg.get("text", "").strip()
                     if text:
@@ -415,6 +425,8 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
 
             # Start transcription
             self.live_transcriber.start()
+            logger.info(f"\t started live transcription.")
+            
             self.transcription_active = True
 
             # Update GUI
@@ -431,13 +443,16 @@ class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
             print(f"Live transcription started with session: {session_name}")
 
         except Exception as e:
+            logger.error(f".start_live_transcription()  error: {e}")
             messagebox.showerror("Error", f"Failed to start live transcription: {str(e)}")
             print(f"Error starting transcription: {e}")
             import traceback
             traceback.print_exc()
 
+
     def stop_live_transcription(self):
         """Stop live audio transcription"""
+        logger.info(f".stop_live_transcription()  hit")
         if not self.transcription_active:
             return
 
