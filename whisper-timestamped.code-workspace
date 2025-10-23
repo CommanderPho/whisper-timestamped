@@ -8,7 +8,67 @@
 		}
 	],
 	"settings": {
-		"python.languageServer": "None"
+		"python.languageServer": "None",
+		"actionButtons": {
+
+			"commands": [
+				{
+					"name": "Back",
+					"color": "white",
+					"useVsCodeApi": true,
+					"command": "workbench.action.navigateBack"
+				},
+				{
+					"name": "Forward",
+					"color": "white",
+					"useVsCodeApi": true,
+					"command": "workbench.action.navigateForward"
+				},
+				{
+					"name": "Toggle Cell Output Scrolling",
+					"color": "orange",
+					"useVsCodeApi": true,
+					"command": "notebook.cell.toggleOutputScrolling"
+				},
+				{
+					"name": "Restart Python Language Server",
+					"color": "#00FF00",
+					"useVsCodeApi": true,
+					"command": "python.analysis.restartLanguageServer"
+				},
+				// {
+				//     "name": "Toggle line numbers",
+				//     "color": "#00FF00",
+				//     "useVsCodeApi": true,
+				//     "command": "python.analysis.restartLanguageServer"
+				// },
+				{
+					"name": "VSCode Dev Consoler",
+					"color": "#99CCFF",
+					"useVsCodeApi": true,
+					"command": "workbench.action.toggleDevTools"
+				},
+				{
+					"name": "Launch the Live Transcriber",
+					"tooltip": "Build the JupyterBook project",
+					"color": "#ed5700",
+					"useVsCodeApi": false,
+					"command": ".venv\\Scripts\\python.exe .\\scripts\\test_live_whisper_app.py"
+				},
+				{
+					"name": "⇥ Convert to File Spaces",
+					"color": "white",
+					"tooltip": "Convert tabs to spaces in the current file",
+					"useVsCodeApi": true,
+					"command": "editor.action.indentationToSpaces"
+				},
+			],
+			"defaultColor": "grey",
+			"reloadButton": "↻",
+			"loadNpmCommands": true
+		},
+
+
 	},
 	"extensions": {
 		"recommendations": [
