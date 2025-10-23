@@ -35,6 +35,9 @@ except ImportError:
     AUDIO_AVAILABLE = False
     sd = None
 
+import os  # add at top if not present
+program_lock_port = int(os.environ.get("LIVE_WHISPER_LOCK_PORT", 13371))
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -54,7 +57,7 @@ whisper_live_transcripts_dir: Path = Path("E:/Dropbox (Personal)/Databases/Unpar
 class LiveWhisperLoggerApp(EasyTimeSyncParsingMixin):
     # Class variable to track if an instance is already running
     _instance_running = False
-    _lock_port = 12346  # Port to use for singleton check
+    _lock_port = program_lock_port  # Port to use for singleton check
 
     @classmethod
     def is_instance_running(cls):
