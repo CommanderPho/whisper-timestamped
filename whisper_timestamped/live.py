@@ -226,9 +226,21 @@ class LiveTranscriber:
                     temperature=self.cfg.temperature,
                     word_timestamps=self.cfg.word_timestamps,
                     no_speech_threshold=self.cfg.no_speech_threshold,
-                    logprob_threshold=self.cfg.logprob_threshold,
                     condition_on_previous_text=True,
                 )
+            except TypeError as e:
+                # Fallback for older faster-whisper versions that don't support some kwargs
+                try:
+                    segments, info = self.model.transcribe(
+                        audio,
+                        language=self.cfg.language,
+                        beam_size=self.cfg.beam_size,
+                        vad_filter=self.cfg.vad_filter,
+                        temperature=self.cfg.temperature,
+                        word_timestamps=self.cfg.word_timestamps,
+                    )
+                except Exception:
+                    continue
             except Exception:
                 continue
 
