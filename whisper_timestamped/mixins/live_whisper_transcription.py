@@ -1,3 +1,4 @@
+from typing import Dict, List, Tuple, Optional, Callable, Union, Any
 from copy import deepcopy
 from RealtimeSTT import AudioToTextRecorder
 import pyautogui
@@ -134,6 +135,7 @@ class LiveWhisperTranscriptionAppMixin:
         sets up `self.outlet_LiveWhisperTranscriptionAppMixin`
 
         """
+        assert self.outlets is not None
         try:
             
             # Create stream info
@@ -157,25 +159,29 @@ class LiveWhisperTranscriptionAppMixin:
 
 
             # Create outlet
-            self.outlet_LiveWhisperTranscriptionAppMixin = pylsl.StreamOutlet(info)
+            self.outlets['WhisperLiveLogger'] = pylsl.StreamOutlet(info)
+            print("WhisperLiveLogger LSL outlet created successfully")
 
-            # Update LSL status label safely
-            try:
-                if not self._shutting_down:
-                    self.lsl_status_label.config(text="LSL Status: Connected", foreground="green")
-            except tk.TclError:
-                pass  # GUI is being destroyed
+            # # Update LSL status label safely
+            # try:
+            #     if not self._shutting_down:
+            #         self.lsl_status_label.config(text="LSL Status: Connected", foreground="green")
+            # except tk.TclError:
+            #     pass  # GUI is being destroyed
 
-            # Setup inlet for recording our own stream (with delay to allow outlet to be discovered)
-            self.root.after(1000, self.setup_recording_inlet)
+            # # Setup inlet for recording our own stream (with delay to allow outlet to be discovered)
+            # self.root.after(1000, self.setup_recording_inlet)
 
         except Exception as e:
-            try:
-                if not self._shutting_down:
-                    self.lsl_status_label.config(text=f"LSL Status: Error - {str(e)}", foreground="red")
-            except tk.TclError:
-                pass  # GUI is being destroyed
-            self.outlet_LiveWhisperTranscriptionAppMixin = None
+            print(f"Error creating WhisperLiveLogger LSL outlet: {e}")
+            self.outlets['WhisperLiveLogger'] = None
+            # try:
+            #     if not self._shutting_down:
+            #         self.lsl_status_label.config(text=f"LSL Status: Error - {str(e)}", foreground="red")
+            # except tk.TclError:
+            #     pass  # GUI is being destroyed
+            
+            raise
 
     # ---------------------------------------------------------------------------- #
     #                           Live Transcription Methods                         #
@@ -191,7 +197,7 @@ class LiveWhisperTranscriptionAppMixin:
             model="medium",  # Good balance of speed and accuracy
             device=None,  # Auto-detect
             compute_type=None,  # Auto-detect
-            language=None,  # Auto-detect
+            language='en',  # Auto-detect
             beam_size=1,
             vad_filter=True,
             chunk_length_s=15.0,
@@ -341,6 +347,16 @@ class LiveWhisperTranscriptionAppMixin:
 
         except Exception as e:
             print(f"Error stopping transcription: {e}")
+
+
+    def auto_start_live_transcription(self):
+        """ tries to start live transcription on startup """
+        try:
+            self.start_live_transcription()
+        except Exception as e:
+            print(f'auto_start_live_transcription(): encountered error {e}.')
+            raise
+
 
 
     def show_transcription_settings(self):
