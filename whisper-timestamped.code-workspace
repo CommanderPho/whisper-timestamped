@@ -5,6 +5,39 @@
 		},
 		{
 			"path": "C:/Users/pho/repos/EmotivEpoc/LSL_REPOS/LSL/PhoPyLSLhelper"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/phoLabStreamingLayerTrayMonitor"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/PhoPySysTrayTemplate"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/LSL_REPOS/App-SigVisualizer"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/stream_viewer"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/PhoLogToLabStreamingLayer"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/emotiv-lsl"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/TimefluxRepos"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/flutter_application_final_emotiv_logger"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/PhoLabStreamingReceiver"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/PhoOfflineEEGAnalysis"
+		},
+		{
+			"path": "C:/Users/pho/repos/EmotivEpoc/LSL_REPOS/LSL_Video_Acquisition"
 		}
 	],
 	"settings": {
@@ -67,6 +100,7 @@
 			"reloadButton": "↻",
 			"loadNpmCommands": true
 		},
+		"powershell.cwd": "whisper-timestamped",
 
 
 	},
