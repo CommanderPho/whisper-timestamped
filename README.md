@@ -820,3 +820,30 @@ recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve()
 C:\Users\pho\repos\EmotivEpoc\PhoOfflineEEGAnalysis
 
 ```
+## Additional Install Requirements
+```
+# on Ubuntu or Debian
+sudo apt update && sudo apt install ffmpeg
+
+# on Arch Linux
+sudo pacman -S ffmpeg
+
+# on MacOS using Homebrew (https://brew.sh/)
+brew install ffmpeg
+
+# on Windows using Chocolatey (https://chocolatey.org/)
+choco install ffmpeg
+
+# on Windows using Scoop (https://scoop.sh/)
+scoop install ffmpeg
+
+```
+
+#### Rust
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+uv add setuptools-rust
+
+
+```
