@@ -820,6 +820,13 @@ recordings_dir = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings").resolve()
 C:\Users\pho\repos\EmotivEpoc\PhoOfflineEEGAnalysis
 
 ```
+
+# Extra Deps
+
+## FFMPEG and portaudio19:
+```bash
+# on Ubuntu or Debian
+sudo apt update && sudo apt install -y portaudio19-dev ffmpeg
 ## Additional Install Requirements
 ```
 # on Ubuntu or Debian
@@ -846,4 +853,5 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 uv add setuptools-rust
 
 
+```
 ```
