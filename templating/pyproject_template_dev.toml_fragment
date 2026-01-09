@@ -1,0 +1,3 @@
+[tool.uv.sources]
+phopylslhelper = { path = "../PhoPyLSLhelper", editable = true }
+
