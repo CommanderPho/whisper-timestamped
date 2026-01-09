@@ -1072,16 +1072,10 @@ wheels = [
 [[package]]
 name = "phopylslhelper"
 version = "0.1.3"
-source = { editable = "../PhoPyLSLhelper" }
+source = { git = "https://github.com/CommanderPho/phopylslhelper.git#d04aa898ff0d932642e133b3d2d0857d190e0536" }
 dependencies = [
     { name = "pylsl" },
     { name = "pytz" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pylsl", specifier = ">=1.16.2" },
-    { name = "pytz", specifier = ">=2025.2" },
 ]
 
 [[package]]
@@ -4459,7 +4453,7 @@ requires-dist = [
     { name = "onnxruntime", marker = "extra == 'vad-silero'", specifier = ">=1.22.1,<1.23" },
     { name = "openai-whisper", git = "https://github.com/openai/whisper.git" },
     { name = "pandas", specifier = ">=2.3.1" },
-    { name = "phopylslhelper", editable = "../PhoPyLSLhelper" },
+    { name = "phopylslhelper", git = "https://github.com/CommanderPho/phopylslhelper.git" },
     { name = "pyautogui", specifier = ">=0.9.54" },
     { name = "pyinstaller", specifier = ">=6.15.0" },
     { name = "pylsl", specifier = ">=1.17.6" },
