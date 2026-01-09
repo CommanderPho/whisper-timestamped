@@ -133,3 +133,5 @@ dmypy.json
 transcriptions
 live_transcripts/*.wav
 process_recordings.exe
+desktop.ini
+.pseudo-folders.*json

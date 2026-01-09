@@ -1,0 +1,2 @@
+[tool.uv.sources]
+phopylslhelper = { git = "https://github.com/CommanderPho/phopylslhelper.git" }
