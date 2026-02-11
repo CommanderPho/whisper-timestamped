@@ -135,3 +135,6 @@ live_transcripts/*.wav
 process_recordings.exe
 desktop.ini
 .pseudo-folders.*json
+.pseudo-folders.backup.1.json
+desktop.ini
+.pseudo-folders*.json

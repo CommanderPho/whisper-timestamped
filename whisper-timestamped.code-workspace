@@ -4,22 +4,8 @@
 			"path": "."
 		},
 		{
-			"path": "../phopylslhelper"
-		},
-		// {
-		// 	"path": "C:/Users/pho/repos/EmotivEpoc/phoLabStreamingLayerTrayMonitor"
-		// },
-		// {
-		// 	"path": "C:/Users/pho/repos/EmotivEpoc/PhoPySysTrayTemplate"
-		// },
-		// {
-		// 	"path": "C:/Users/pho/repos/EmotivEpoc/LSL_REPOS/App-SigVisualizer"
-		// },
-		// {
-		// 	"path": "C:/Users/pho/repos/EmotivEpoc/stream_viewer"
-		// },
-		{
-			"path": "../PhoLogToLabStreamingLayer"
+			// "path": "C:/Users/pho/repos/EmotivEpoc/LSL_REPOS/LSL/PhoPyLSLhelper"
+            "path": "../phopylslhelper"
 		},
 		{
 			"path": "../emotiv-lsl"
