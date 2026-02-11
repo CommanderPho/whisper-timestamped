@@ -10,7 +10,7 @@ authors = [
 ]
 urls = {Homepage = "https://github.com/CommanderPho/whisper-timestamped"}
 dependencies = [
-    "attrs>=25.3.0",
+    "attrs>=22.2.0,<23",
     "auditok>=0.3.0",
     "cython",
     "dtw-python",
@@ -21,7 +21,8 @@ dependencies = [
     "mne>=1.10.0",
     "mne-lsl>=1.10.1",
     "numpy>=2.2.6",
-    "onnxruntime>=1.22.1,<1.23",
+    "onnxruntime>=1.22.1,<1.23; platform_system != 'Darwin' or platform_machine != 'x86_64'",
+    "onnxruntime>=1.16.1,<1.20.0; platform_system == 'Darwin' and platform_machine == 'x86_64'",
     "openai-whisper",
     "pandas>=2.3.1",
     "phopylslhelper",
@@ -34,9 +35,12 @@ dependencies = [
     "scipy>=1.15.3",
     "setuptools>=80.9.0,<81",
     "silero-vad>=6.0.0",
-    "torch>=2.7.1",
-    "torchaudio>=2.7.1",
-    "torchvision>=0.22.1",
+    "torch>=2.7.1; platform_system != 'Darwin' or platform_machine != 'x86_64'",
+    "torch>=2.0.0,<2.1.0; platform_system == 'Darwin' and platform_machine == 'x86_64'",
+    "torchaudio>=2.7.1; platform_system != 'Darwin' or platform_machine != 'x86_64'",
+    "torchaudio>=2.0.0,<2.1.0; platform_system == 'Darwin' and platform_machine == 'x86_64'",
+    "torchvision>=0.22.1; platform_system != 'Darwin' or platform_machine != 'x86_64'",
+    "torchvision>=0.15.0,<0.16.0; platform_system == 'Darwin' and platform_machine == 'x86_64'",
     "transformers>=4.53.2",
     "wheel>=0.45.1",
 ]
@@ -55,8 +59,10 @@ watch = [
     "watchdog>=4.0.0",
 ]
 vad_silero = [
-    "onnxruntime>=1.22.1,<1.23",
-    "torchaudio>=2.7.1",
+    "onnxruntime>=1.22.1,<1.23; platform_system != 'Darwin' or platform_machine != 'x86_64'",
+    "onnxruntime>=1.16.1,<1.20.0; platform_system == 'Darwin' and platform_machine == 'x86_64'",
+    "torchaudio>=2.7.1; platform_system != 'Darwin' or platform_machine != 'x86_64'",
+    "torchaudio>=2.0.0,<2.1.0; platform_system == 'Darwin' and platform_machine == 'x86_64'",
 ]
 vad_auditok = [
     "auditok",
@@ -67,8 +73,10 @@ test = [
 # Updated extras that match your current dependencies
 full = [
     "matplotlib>=3.10.3",
-    "onnxruntime>=1.22.1,<1.23", 
-    "torchaudio>=2.7.1",
+    "onnxruntime>=1.22.1,<1.23; platform_system != 'Darwin' or platform_machine != 'x86_64'",
+    "onnxruntime>=1.16.1,<1.20.0; platform_system == 'Darwin' and platform_machine == 'x86_64'",
+    "torchaudio>=2.7.1; platform_system != 'Darwin' or platform_machine != 'x86_64'",
+    "torchaudio>=2.0.0,<2.1.0; platform_system == 'Darwin' and platform_machine == 'x86_64'",
     "transformers>=4.53.2",
     "faster-whisper>=1.0.0",
     "sounddevice>=0.4.6",
@@ -97,5 +105,4 @@ package = true
 
 [tool.uv.sources]
 openai-whisper = { git = "https://github.com/openai/whisper.git" }
-phopylslhelper = { git = "https://github.com/CommanderPho/phopylslhelper.git" }
-# phopylslhelper = { path = "../PhoPyLSLhelper", editable = true }
+phopylslhelper = { path = "../PhoPyLSLhelper", editable = true }
